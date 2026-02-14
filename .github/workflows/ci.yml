@@ -45,7 +45,7 @@ jobs:
           pip install -e .[dev]
 
       - name: Build and start stack
-        run: docker compose up -d --build
+        run: docker compose up -d --build postgres minio control_plane
 
       - name: Wait for control plane health
         run: |
