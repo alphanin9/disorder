@@ -13,6 +13,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 ## Repo layout
 - `control_plane/` FastAPI control plane, DB models/migrations, CTFd adapter, orchestrator
 - `cli/` Typer CLI (`python -m cli ...`)
+- `frontend/` React + Vite operator console
 - `images/ctf-agent-sandbox/` sandbox image + `agent_runner.py`
 - `docs/` architecture, threat model, API
 - `tests/` unit + integration smoke
@@ -20,6 +21,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 ## Quickstart
 1. Start infra + control plane:
    - `docker compose up -d --build`
+   - Frontend is available at `http://localhost:3000`
 2. Optional CTFd sync:
    - `python -m cli configure --ctfd-url https://ctfd.example --token <token>`
    - `python -m cli sync`
@@ -42,3 +44,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Unit tests: `python -m pytest -q tests/unit`
 - Integration smoke (requires running stack):
   - `RUN_SMOKE=1 python -m pytest -q tests/integration/test_smoke_mock_run.py`
+- Frontend unit tests:
+  - `npm --prefix frontend run test:run`
+- Frontend e2e smoke (requires running stack):
+  - `npm --prefix frontend run test:e2e`
