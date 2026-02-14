@@ -1,17 +1,19 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
-import { createRun, getChallenge, getCtfs, updateChallenge } from "@/api/endpoints";
-import type { RunCreateRequest } from "@/api/models";
+import { createRun, getChallenge, getCtfs, updateChallenge, uploadChallengeArtifact } from "@/api/endpoints";
+import type { ChallengeArtifact, RunCreateRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 
 const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
+  goal: z.enum(["flag", "deliverable"]),
   local_deploy_enabled: z.boolean().default(false),
 });
 
@@ -32,10 +34,26 @@ function normalizeOptional(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function parseArtifact(input: unknown): ChallengeArtifact | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+  const record = input as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name : null;
+  const sha256 = typeof record.sha256 === "string" ? record.sha256 : null;
+  const sizeBytes = typeof record.size_bytes === "number" ? record.size_bytes : null;
+  const objectKey = typeof record.object_key === "string" ? record.object_key : null;
+  if (!name || !sha256 || sizeBytes === null || !objectKey) {
+    return null;
+  }
+  return { name, sha256, size_bytes: sizeBytes, object_key: objectKey };
+}
+
 export function ChallengeDetailPage() {
   const { challengeId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [artifacts, setArtifacts] = useState<ChallengeArtifact[]>([]);
 
   const challengeQuery = useQuery({
     queryKey: ["challenge", challengeId],
@@ -72,6 +90,7 @@ export function ChallengeDetailPage() {
       description_md: challengeQuery.data.description_md,
       flag_regex: challengeQuery.data.flag_regex ?? "",
     });
+    setArtifacts(challengeQuery.data.artifacts.map(parseArtifact).filter((artifact): artifact is ChallengeArtifact => artifact !== null));
   }, [challengeQuery.data, editForm]);
 
   const editMutation = useMutation({
@@ -87,6 +106,11 @@ export function ChallengeDetailPage() {
         description_md: values.description_md,
         description_raw: values.description_md,
         flag_regex: normalizeOptional(values.flag_regex),
+        artifacts,
+        local_deploy_hints: {
+          compose_present: artifacts.some((artifact) => ["docker-compose.yml", "compose.yml"].includes(artifact.name)),
+          notes: null,
+        },
       });
     },
     onSuccess: () => {
@@ -101,15 +125,44 @@ export function ChallengeDetailPage() {
     resolver: zodResolver(runSchema),
     defaultValues: {
       backend: "mock",
+      goal: "flag",
       local_deploy_enabled: false,
     },
   });
 
   const runMutation = useMutation({
     mutationFn: (values: RunForm) => {
+      const stopCriteria =
+        values.goal === "deliverable"
+          ? {
+              primary: {
+                type: "DELIVERABLES_READY",
+                config: {
+                  required_files: ["README.md"],
+                },
+              },
+              secondary: {
+                type: "FLAG_FOUND",
+                config: {},
+              },
+            }
+          : {
+              primary: {
+                type: "FLAG_FOUND",
+                config: {},
+              },
+              secondary: {
+                type: "DELIVERABLES_READY",
+                config: {
+                  required_files: ["README.md"],
+                },
+              },
+            };
+
       const payload: RunCreateRequest = {
         challenge_id: challengeId ?? "",
         backend: values.backend,
+        stop_criteria: stopCriteria,
         local_deploy_enabled: values.local_deploy_enabled,
       };
       return createRun(payload);
@@ -118,6 +171,26 @@ export function ChallengeDetailPage() {
       navigate(`/runs/${run.id}`);
     },
   });
+
+  const uploadArtifactMutation = useMutation({
+    mutationFn: uploadChallengeArtifact,
+  });
+
+  const onArtifactFilesSelected = async (files: File[]) => {
+    for (const file of files) {
+      try {
+        const uploaded = await uploadArtifactMutation.mutateAsync(file);
+        setArtifacts((previous) => {
+          if (previous.some((artifact) => artifact.object_key === uploaded.object_key)) {
+            return previous;
+          }
+          return [...previous, uploaded];
+        });
+      } catch {
+        return;
+      }
+    }
+  };
 
   if (!challengeId) {
     return <p>Missing challenge id.</p>;
@@ -149,11 +222,11 @@ export function ChallengeDetailPage() {
 
             <section className="mt-6">
               <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Artifacts</h3>
-              {challengeQuery.data.artifacts.length === 0 ? <p className="text-sm text-slate-600">No artifacts synced.</p> : null}
+              {artifacts.length === 0 ? <p className="text-sm text-slate-600">No artifacts attached.</p> : null}
               <ul className="space-y-2 text-sm">
-                {challengeQuery.data.artifacts.map((artifact, index) => (
-                  <li key={`${String(artifact.name)}-${index}`} className="rounded-md bg-slate-50 px-3 py-2">
-                    {String(artifact.name)}
+                {artifacts.map((artifact) => (
+                  <li key={artifact.object_key} className="rounded-md bg-slate-50 px-3 py-2">
+                    {artifact.name}
                   </li>
                 ))}
               </ul>
@@ -222,10 +295,40 @@ export function ChallengeDetailPage() {
                   <p className="mt-1 text-xs text-slate-600">Leave blank to inherit CTF default regex.</p>
                 </div>
 
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Artifacts</label>
+                  <ArtifactDropzone disabled={uploadArtifactMutation.isPending} onFilesSelected={onArtifactFilesSelected} />
+                  {uploadArtifactMutation.isPending ? <p className="mt-1 text-xs text-slate-600">Uploading artifact...</p> : null}
+                  {uploadArtifactMutation.isError ? <p className="mt-1 text-xs text-danger">Failed to upload one or more artifacts.</p> : null}
+
+                  {artifacts.length > 0 ? (
+                    <ul className="mt-3 space-y-2 text-sm">
+                      {artifacts.map((artifact) => (
+                        <li key={artifact.object_key} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
+                          <span>
+                            {artifact.name} <span className="text-xs text-slate-500">({artifact.size_bytes} bytes)</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-danger hover:underline"
+                            onClick={() => {
+                              setArtifacts((previous) => previous.filter((item) => item.object_key !== artifact.object_key));
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-600">No artifacts attached.</p>
+                  )}
+                </div>
+
                 {editMutation.isError ? <p className="text-sm text-danger">Failed to update challenge.</p> : null}
                 {editMutation.isSuccess ? <p className="text-sm text-success">Challenge updated.</p> : null}
 
-                <Button type="submit" disabled={editMutation.isPending}>
+                <Button type="submit" disabled={editMutation.isPending || uploadArtifactMutation.isPending}>
                   {editMutation.isPending ? "Saving..." : "Save Challenge"}
                 </Button>
               </form>
@@ -250,6 +353,16 @@ export function ChallengeDetailPage() {
               <option value="mock">mock</option>
               <option value="codex">codex</option>
               <option value="claude_code">claude_code</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="goal">
+              Run Goal
+            </label>
+            <select id="goal" className="w-full rounded-md border border-slate-300 px-3 py-2" {...runForm.register("goal")}>
+              <option value="flag">Keep going until flag is found</option>
+              <option value="deliverable">Stop once a working artifact is produced</option>
             </select>
           </div>
 

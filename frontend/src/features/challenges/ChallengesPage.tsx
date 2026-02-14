@@ -1,15 +1,16 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { z } from "zod";
 
-import { createChallenge, getChallenges, getCtfs } from "@/api/endpoints";
-import type { CTF, ChallengeCreateRequest, ChallengeManifest } from "@/api/models";
+import { createChallenge, getChallenges, getCtfs, uploadChallengeArtifact } from "@/api/endpoints";
+import type { CTF, ChallengeArtifact, ChallengeCreateRequest, ChallengeManifest } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 
 const createChallengeSchema = z.object({
   ctf_id: z.string().min(1, "CTF is required"),
@@ -29,6 +30,7 @@ function normalizeOptional(value: string | undefined): string | null {
 
 export function ChallengesPage() {
   const queryClient = useQueryClient();
+  const [artifacts, setArtifacts] = useState<ChallengeArtifact[]>([]);
 
   const challengeQuery = useQuery({
     queryKey: ["challenges"],
@@ -62,10 +64,10 @@ export function ChallengesPage() {
         description_md: values.description_md.trim(),
         description_raw: values.description_md.trim(),
         platform: "manual",
-        artifacts: [],
+        artifacts,
         remote_endpoints: [],
         local_deploy_hints: {
-          compose_present: false,
+          compose_present: artifacts.some((artifact) => ["docker-compose.yml", "compose.yml"].includes(artifact.name)),
           notes: null,
         },
         flag_regex: normalizeOptional(values.flag_regex),
@@ -81,9 +83,30 @@ export function ChallengesPage() {
         description_md: "",
         flag_regex: "",
       });
+      setArtifacts([]);
       void queryClient.invalidateQueries({ queryKey: ["challenges"] });
     },
   });
+
+  const uploadArtifactMutation = useMutation({
+    mutationFn: uploadChallengeArtifact,
+  });
+
+  const onArtifactFilesSelected = async (files: File[]) => {
+    for (const file of files) {
+      try {
+        const uploaded = await uploadArtifactMutation.mutateAsync(file);
+        setArtifacts((previous) => {
+          if (previous.some((artifact) => artifact.object_key === uploaded.object_key)) {
+            return previous;
+          }
+          return [...previous, uploaded];
+        });
+      } catch {
+        return;
+      }
+    }
+  };
 
   const ctfById = useMemo(() => {
     const map = new Map<string, CTF>();
@@ -238,6 +261,36 @@ export function ChallengesPage() {
             <p className="mt-1 text-xs text-slate-600">Leave blank to inherit the CTF default regex.</p>
           </div>
 
+          <div>
+            <label className="mb-2 block text-sm font-medium">Artifacts</label>
+            <ArtifactDropzone disabled={uploadArtifactMutation.isPending} onFilesSelected={onArtifactFilesSelected} />
+            {uploadArtifactMutation.isPending ? <p className="mt-1 text-xs text-slate-600">Uploading artifact...</p> : null}
+            {uploadArtifactMutation.isError ? <p className="mt-1 text-xs text-danger">Failed to upload one or more artifacts.</p> : null}
+
+            {artifacts.length > 0 ? (
+              <ul className="mt-3 space-y-2 text-sm">
+                {artifacts.map((artifact) => (
+                  <li key={artifact.object_key} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
+                    <span>
+                      {artifact.name} <span className="text-xs text-slate-500">({artifact.size_bytes} bytes)</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-danger hover:underline"
+                      onClick={() => {
+                        setArtifacts((previous) => previous.filter((item) => item.object_key !== artifact.object_key));
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-slate-600">No artifacts attached.</p>
+            )}
+          </div>
+
           {ctfQuery.data && ctfQuery.data.items.length === 0 ? (
             <p className="text-sm text-warning">
               No CTFs configured yet. Create one on the <Link to="/ctfs" className="font-semibold underline">CTFs page</Link>.
@@ -245,7 +298,11 @@ export function ChallengesPage() {
           ) : null}
           {createMutation.isError ? <p className="text-sm text-danger">Failed to create challenge.</p> : null}
 
-          <Button type="submit" className="w-full" disabled={createMutation.isPending || (ctfQuery.data?.items.length ?? 0) === 0}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={createMutation.isPending || uploadArtifactMutation.isPending || (ctfQuery.data?.items.length ?? 0) === 0}
+          >
             {createMutation.isPending ? "Creating..." : "Create Challenge"}
           </Button>
         </form>

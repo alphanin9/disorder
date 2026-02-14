@@ -108,6 +108,8 @@ def create_challenge(db: Session, request: ChallengeCreateRequest) -> ChallengeM
     if existing is not None:
         raise ValueError("platform/platform_challenge_id already exists")
 
+    artifacts_payload = [artifact.model_dump() for artifact in request.artifacts]
+
     challenge = ChallengeManifest(
         ctf_id=ctf.id,
         platform=request.platform,
@@ -117,7 +119,7 @@ def create_challenge(db: Session, request: ChallengeCreateRequest) -> ChallengeM
         points=request.points,
         description_md=request.description_md,
         description_raw=request.description_raw,
-        artifacts=request.artifacts,
+        artifacts=artifacts_payload,
         remote_endpoints=request.remote_endpoints,
         local_deploy_hints=request.local_deploy_hints,
         flag_regex=request.flag_regex,
@@ -161,7 +163,7 @@ def update_challenge(db: Session, challenge: ChallengeManifest, request: Challen
     if "description_raw" in fields_set:
         challenge.description_raw = request.description_raw
     if "artifacts" in fields_set:
-        challenge.artifacts = request.artifacts
+        challenge.artifacts = [artifact.model_dump() for artifact in request.artifacts] if request.artifacts is not None else []
     if "remote_endpoints" in fields_set:
         challenge.remote_endpoints = request.remote_endpoints
     if "local_deploy_hints" in fields_set:

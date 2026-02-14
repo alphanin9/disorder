@@ -1,6 +1,7 @@
 import { apiRequest } from "@/api/client";
 import type {
   ChallengeCreateRequest,
+  ChallengeArtifact,
   ChallengeListResponse,
   ChallengeManifest,
   ChallengeUpdateRequest,
@@ -34,6 +35,15 @@ export async function updateChallenge(challengeId: string, payload: ChallengeUpd
   return apiRequest<ChallengeManifest>(`/challenges/${challengeId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadChallengeArtifact(file: File): Promise<ChallengeArtifact> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiRequest<ChallengeArtifact>("/challenges/artifacts/upload", {
+    method: "POST",
+    body: formData,
   });
 }
 

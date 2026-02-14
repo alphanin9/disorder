@@ -28,6 +28,13 @@ class ChallengeListResponse(BaseModel):
     items: list[ChallengeManifestRead]
 
 
+class ChallengeArtifactRead(BaseModel):
+    name: str
+    sha256: str
+    size_bytes: int
+    object_key: str
+
+
 class ChallengeCreateRequest(BaseModel):
     ctf_id: UUID
     name: str
@@ -37,7 +44,7 @@ class ChallengeCreateRequest(BaseModel):
     description_raw: str | None = None
     platform: str = "manual"
     platform_challenge_id: str | None = None
-    artifacts: list[dict] = Field(default_factory=list)
+    artifacts: list[ChallengeArtifactRead] = Field(default_factory=list)
     remote_endpoints: list[dict] = Field(default_factory=list)
     local_deploy_hints: dict = Field(default_factory=lambda: {"compose_present": False, "notes": None})
     flag_regex: str | None = None
@@ -50,7 +57,7 @@ class ChallengeUpdateRequest(BaseModel):
     points: int | None = None
     description_md: str | None = None
     description_raw: str | None = None
-    artifacts: list[dict] | None = None
+    artifacts: list[ChallengeArtifactRead] | None = None
     remote_endpoints: list[dict] | None = None
     local_deploy_hints: dict | None = None
     flag_regex: str | None = None

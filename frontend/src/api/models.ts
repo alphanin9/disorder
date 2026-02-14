@@ -12,6 +12,7 @@ export type CTFCreateRequest = components["schemas"]["CTFCreateRequest"];
 export type CTFUpdateRequest = components["schemas"]["CTFUpdateRequest"];
 export type ChallengeCreateRequest = components["schemas"]["ChallengeCreateRequest"];
 export type ChallengeUpdateRequest = components["schemas"]["ChallengeUpdateRequest"];
+export type ChallengeArtifact = components["schemas"]["ChallengeArtifactRead"];
 
 export type RunResultPayload = {
   challenge_id: string;
