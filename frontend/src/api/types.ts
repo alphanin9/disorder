@@ -9,7 +9,8 @@ export interface paths {
         /** List Challenges */
         get: operations["list_challenges_challenges_get"];
         put?: never;
-        post?: never;
+        /** Create Challenge Route */
+        post: operations["create_challenge_route_challenges_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -30,7 +31,44 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** Update Challenge Route */
+        patch: operations["update_challenge_route_challenges__challenge_id__patch"];
+        trace?: never;
+    };
+    "/ctfs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Ctfs Route */
+        get: operations["list_ctfs_route_ctfs_get"];
+        put?: never;
+        /** Create Ctf Route */
+        post: operations["create_ctf_route_ctfs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/ctfs/{ctf_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ctf Route */
+        get: operations["get_ctf_route_ctfs__ctf_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Ctf Route */
+        patch: operations["update_ctf_route_ctfs__ctf_id__patch"];
         trace?: never;
     };
     "/healthz": {
@@ -156,6 +194,54 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ChallengeCreateRequest */
+        ChallengeCreateRequest: {
+            /** Artifacts */
+            artifacts?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Category
+             * @default misc
+             */
+            category: string;
+            /**
+             * Ctf Id
+             * Format: uuid
+             */
+            ctf_id: string;
+            /**
+             * Description Md
+             * @default
+             */
+            description_md: string;
+            /** Description Raw */
+            description_raw?: string | null;
+            /** Flag Regex */
+            flag_regex?: string | null;
+            /** Local Deploy Hints */
+            local_deploy_hints?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /**
+             * Platform
+             * @default manual
+             */
+            platform: string;
+            /** Platform Challenge Id */
+            platform_challenge_id?: string | null;
+            /**
+             * Points
+             * @default 0
+             */
+            points: number;
+            /** Remote Endpoints */
+            remote_endpoints?: {
+                [key: string]: unknown;
+            }[];
+        };
         /** ChallengeListResponse */
         ChallengeListResponse: {
             /** Items */
@@ -169,6 +255,13 @@ export interface components {
             }[];
             /** Category */
             category: string;
+            /**
+             * Ctf Id
+             * Format: uuid
+             */
+            ctf_id: string;
+            /** Ctf Name */
+            ctf_name?: string | null;
             /** Description Md */
             description_md: string;
             /** Description Raw */
@@ -202,6 +295,51 @@ export interface components {
              */
             synced_at: string;
         };
+        /** ChallengeUpdateRequest */
+        ChallengeUpdateRequest: {
+            /** Artifacts */
+            artifacts?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Category */
+            category?: string | null;
+            /** Ctf Id */
+            ctf_id?: string | null;
+            /** Description Md */
+            description_md?: string | null;
+            /** Description Raw */
+            description_raw?: string | null;
+            /** Flag Regex */
+            flag_regex?: string | null;
+            /** Local Deploy Hints */
+            local_deploy_hints?: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name?: string | null;
+            /** Points */
+            points?: number | null;
+            /** Remote Endpoints */
+            remote_endpoints?: {
+                [key: string]: unknown;
+            }[] | null;
+        };
+        /** CTFCreateRequest */
+        CTFCreateRequest: {
+            /**
+             * Default Flag Regex
+             * @default flag\{.*?\}
+             */
+            default_flag_regex: string | null;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Platform */
+            platform?: string | null;
+            /** Slug */
+            slug: string;
+        };
         /** CTFdConfigResponse */
         CTFdConfigResponse: {
             /** Base Url */
@@ -215,6 +353,52 @@ export interface components {
             api_token?: string | null;
             /** Base Url */
             base_url?: string | null;
+        };
+        /** CTFListResponse */
+        CTFListResponse: {
+            /** Items */
+            items: components["schemas"]["CTFRead"][];
+        };
+        /** CTFRead */
+        CTFRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Default Flag Regex */
+            default_flag_regex?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Platform */
+            platform?: string | null;
+            /** Slug */
+            slug: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** CTFUpdateRequest */
+        CTFUpdateRequest: {
+            /** Default Flag Regex */
+            default_flag_regex?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Platform */
+            platform?: string | null;
+            /** Slug */
+            slug?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -376,6 +560,39 @@ export interface operations {
             };
         };
     };
+    create_challenge_route_challenges_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChallengeCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChallengeManifestRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_challenge_challenges__challenge_id__get: {
         parameters: {
             query?: never;
@@ -394,6 +611,160 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChallengeManifestRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_challenge_route_challenges__challenge_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                challenge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChallengeUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChallengeManifestRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ctfs_route_ctfs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CTFListResponse"];
+                };
+            };
+        };
+    };
+    create_ctf_route_ctfs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CTFCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CTFRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ctf_route_ctfs__ctf_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ctf_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CTFRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_ctf_route_ctfs__ctf_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ctf_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CTFUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CTFRead"];
                 };
             };
             /** @description Validation Error */

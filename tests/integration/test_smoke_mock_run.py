@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from control_plane.app.db.models import ChallengeManifest
+from control_plane.app.db.models import CTFEvent, ChallengeManifest
 
 
 @pytest.mark.integration
@@ -26,7 +26,19 @@ def test_smoke_mock_run() -> None:
 
     challenge_id = None
     with Session() as db:
+        ctf = CTFEvent(
+            name="Smoke CTF",
+            slug=f"smoke-ctf-{str(uuid.uuid4())[:8]}",
+            platform="manual",
+            default_flag_regex=r"flag\\{.*?\\}",
+            notes="Auto-created by smoke test",
+        )
+        db.add(ctf)
+        db.commit()
+        db.refresh(ctf)
+
         challenge = ChallengeManifest(
+            ctf_id=ctf.id,
             platform="ctfd",
             platform_challenge_id=f"smoke-{uuid.uuid4()}",
             name="Smoke Challenge",

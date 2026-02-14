@@ -11,7 +11,7 @@ from control_plane.app.schemas.run import RunCreateRequest
 
 
 def build_default_stop_criteria(challenge: ChallengeManifest) -> dict:
-    regex = challenge.flag_regex or r"flag\{.*?\}"
+    regex = challenge.flag_regex or (challenge.ctf.default_flag_regex if challenge.ctf else None) or r"flag\{.*?\}"
     return {
         "primary": {"type": "FLAG_FOUND", "config": {"regex": regex}},
         "secondary": {

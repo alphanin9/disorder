@@ -13,6 +13,7 @@ from control_plane.app.adapters.ctfd import (
 )
 from control_plane.app.db.models import ChallengeManifest, IntegrationConfig
 from control_plane.app.schemas.integration import CTFdSyncRequest
+from control_plane.app.services.challenge_service import ensure_ctf_for_sync
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import artifact_object_key, sha256_bytes
 
@@ -46,6 +47,7 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
 
     upsert_ctfd_config(db, base_url=base_url, api_token=api_token)
     blob_store = get_blob_store()
+    ctf_event = ensure_ctf_for_sync(db, base_url=base_url)
 
     client = CTFdClient(base_url=base_url, api_token=api_token)
     try:
@@ -94,6 +96,7 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
                 existing = ChallengeManifest(platform="ctfd", platform_challenge_id=summary.challenge_id)
                 db.add(existing)
 
+            existing.ctf_id = ctf_event.id
             existing.name = summary.name
             existing.category = summary.category
             existing.points = summary.points

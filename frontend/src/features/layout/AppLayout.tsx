@@ -18,6 +18,14 @@ export function AppLayout() {
             >
               Challenges
             </NavLink>
+            <NavLink
+              to="/ctfs"
+              className={({ isActive }) =>
+                `rounded-md px-3 py-2 text-sm font-semibold ${isActive ? "bg-accent text-white" : "text-slate-700 hover:bg-slate-100"}`
+              }
+            >
+              CTFs
+            </NavLink>
           </nav>
         </div>
       </header>

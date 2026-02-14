@@ -6,6 +6,12 @@ export type RunCreateRequest = components["schemas"]["RunCreateRequest"];
 export type RunRead = components["schemas"]["RunRead"];
 export type RunStatusResponse = components["schemas"]["RunStatusResponse"];
 export type RunLogsResponse = components["schemas"]["RunLogsResponse"];
+export type CTF = components["schemas"]["CTFRead"];
+export type CTFListResponse = components["schemas"]["CTFListResponse"];
+export type CTFCreateRequest = components["schemas"]["CTFCreateRequest"];
+export type CTFUpdateRequest = components["schemas"]["CTFUpdateRequest"];
+export type ChallengeCreateRequest = components["schemas"]["ChallengeCreateRequest"];
+export type ChallengeUpdateRequest = components["schemas"]["ChallengeUpdateRequest"];
 
 export type RunResultPayload = {
   challenge_id: string;

@@ -10,7 +10,7 @@ import httpx
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from control_plane.app.db.models import ChallengeManifest
+from control_plane.app.db.models import CTFEvent, ChallengeManifest
 
 FINAL_STATUSES = {"flag_found", "deliverable_produced", "blocked", "timeout"}
 
@@ -20,7 +20,19 @@ def _seed_demo_challenge(database_url: str) -> str:
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
     with session_factory() as db:
+        ctf = CTFEvent(
+            name="Demo CTF",
+            slug=f"demo-ctf-{str(uuid.uuid4())[:8]}",
+            platform="manual",
+            default_flag_regex=r"flag\\{.*?\\}",
+            notes="Auto-created by make demo",
+        )
+        db.add(ctf)
+        db.commit()
+        db.refresh(ctf)
+
         challenge = ChallengeManifest(
+            ctf_id=ctf.id,
             platform="ctfd",
             platform_challenge_id=f"demo-{uuid.uuid4()}",
             name="Demo Challenge",

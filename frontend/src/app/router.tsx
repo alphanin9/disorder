@@ -3,6 +3,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppLayout } from "@/features/layout/AppLayout";
 import { ChallengeDetailPage } from "@/features/challenges/ChallengeDetailPage";
 import { ChallengesPage } from "@/features/challenges/ChallengesPage";
+import { CTFsPage } from "@/features/ctfs/CTFsPage";
 import { RunPage } from "@/features/runs/RunPage";
 
 export const router = createBrowserRouter([
@@ -21,6 +22,10 @@ export const router = createBrowserRouter([
       {
         path: "runs/:runId",
         element: <RunPage />,
+      },
+      {
+        path: "ctfs",
+        element: <CTFsPage />,
       },
     ],
   },

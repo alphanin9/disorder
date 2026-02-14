@@ -12,6 +12,8 @@ const server = setupServer(
       items: [
         {
           id: "11e0d301-3635-497c-990a-2a11721022a0",
+          ctf_id: "26eb88c7-6cb6-4b04-875a-ef2d8d71a70f",
+          ctf_name: "Disorder CTF",
           platform: "ctfd",
           platform_challenge_id: "1",
           name: "Warmup",
@@ -28,6 +30,22 @@ const server = setupServer(
       ],
     }),
   ),
+  http.get("http://localhost/api/ctfs", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: "26eb88c7-6cb6-4b04-875a-ef2d8d71a70f",
+          name: "Disorder CTF",
+          slug: "disorder-ctf",
+          platform: "manual",
+          default_flag_regex: "flag\\{.*?\\}",
+          notes: null,
+          created_at: "2026-02-14T22:00:00Z",
+          updated_at: "2026-02-14T22:00:00Z",
+        },
+      ],
+    }),
+  ),
 );
 
 beforeAll(() => server.listen());
@@ -39,6 +57,7 @@ describe("ChallengesPage", () => {
     renderWithProviders(<ChallengesPage />);
 
     expect(await screen.findByText("Warmup")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Disorder CTF" })).toBeInTheDocument();
     expect(screen.getByText("misc")).toBeInTheDocument();
     expect(screen.getByText("50")).toBeInTheDocument();
   });

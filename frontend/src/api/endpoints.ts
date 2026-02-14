@@ -1,7 +1,13 @@
 import { apiRequest } from "@/api/client";
 import type {
+  ChallengeCreateRequest,
   ChallengeListResponse,
   ChallengeManifest,
+  ChallengeUpdateRequest,
+  CTF,
+  CTFCreateRequest,
+  CTFListResponse,
+  CTFUpdateRequest,
   RunCreateRequest,
   RunLogsResponse,
   RunRead,
@@ -15,6 +21,38 @@ export async function getChallenges(): Promise<ChallengeListResponse> {
 
 export async function getChallenge(challengeId: string): Promise<ChallengeManifest> {
   return apiRequest<ChallengeManifest>(`/challenges/${challengeId}`);
+}
+
+export async function createChallenge(payload: ChallengeCreateRequest): Promise<ChallengeManifest> {
+  return apiRequest<ChallengeManifest>("/challenges", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateChallenge(challengeId: string, payload: ChallengeUpdateRequest): Promise<ChallengeManifest> {
+  return apiRequest<ChallengeManifest>(`/challenges/${challengeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getCtfs(): Promise<CTFListResponse> {
+  return apiRequest<CTFListResponse>("/ctfs");
+}
+
+export async function createCtf(payload: CTFCreateRequest): Promise<CTF> {
+  return apiRequest<CTF>("/ctfs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCtf(ctfId: string, payload: CTFUpdateRequest): Promise<CTF> {
+  return apiRequest<CTF>(`/ctfs/${ctfId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function createRun(payload: RunCreateRequest): Promise<RunRead> {

@@ -17,11 +17,27 @@ class IntegrationConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class CTFEvent(Base):
+    __tablename__ = "ctf_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    platform: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    default_flag_regex: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    challenges: Mapped[list["ChallengeManifest"]] = relationship(back_populates="ctf")
+
+
 class ChallengeManifest(Base):
     __tablename__ = "challenge_manifests"
     __table_args__ = (UniqueConstraint("platform", "platform_challenge_id", name="uq_platform_challenge_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ctf_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ctf_events.id", ondelete="RESTRICT"), nullable=False)
     platform: Mapped[str] = mapped_column(String(32), nullable=False)
     platform_challenge_id: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -35,6 +51,7 @@ class ChallengeManifest(Base):
     flag_regex: Mapped[str | None] = mapped_column(String(512), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+    ctf: Mapped[CTFEvent] = relationship(back_populates="challenges")
     runs: Mapped[list["Run"]] = relationship(back_populates="challenge", cascade="all, delete-orphan")
 
 
