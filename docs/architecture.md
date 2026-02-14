@@ -6,6 +6,7 @@
 - `postgres`: source of truth for challenge manifests, run specs, run result metadata.
 - `minio`: object storage for challenge artifacts, run results, logs, deliverables.
 - `sandbox` container (`ctf-agent-sandbox:latest`): executes one RunSpec with backend `mock|codex|claude_code`.
+  - Includes baseline CTF tooling (`pwntools`, `gdb`, `binutils`, `strace`, `socat`, `z3-solver`, etc.) and Codex CLI.
 - `cli`: Typer client for sync/list/run/log/result workflows.
 
 ## Data flow
@@ -13,6 +14,9 @@
 2. Manifests are upserted into Postgres; files are uploaded to MinIO.
 3. `POST /runs` stores RunSpec-like fields in `runs`, then launches Docker orchestration thread.
 4. Orchestrator hydrates artifacts into `runs/<run_id>/chal`, writes `runs/<run_id>/run/spec.json`, starts sandbox.
+   - Challenge artifacts are mounted read-only at `/workspace/chal`.
+   - Run workspace is mounted read-write at `/workspace/run`.
+   - Selected env vars and optional Codex auth mount are passed into sandbox.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.

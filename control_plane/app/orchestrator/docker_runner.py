@@ -36,7 +36,7 @@ class DockerRunner:
         self.settings = get_settings()
         self.blob_store = get_blob_store()
         self.client = docker.DockerClient(base_url=self.settings.docker_socket)
-        self.docker_bind_runs_dir = self._resolve_docker_bind_runs_dir()
+        self.docker_bind_runs_dir = self._resolve_host_mount_path(self.settings.docker_bind_runs_dir)
 
     def launch_async(self, run_id: str) -> None:
         thread = threading.Thread(target=self.execute_run, args=(run_id,), daemon=True)
@@ -108,6 +108,12 @@ class DockerRunner:
             host_chal_dir = host_run_dir / "chal"
             host_run_mount = host_run_dir / "run"
 
+            volumes = {
+                str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
+                str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
+            }
+            volumes.update(self._sandbox_auth_volumes())
+
             container = self.client.containers.run(
                 self.settings.sandbox_image,
                 detach=True,
@@ -116,12 +122,9 @@ class DockerRunner:
                 mem_limit=self.settings.default_mem_limit,
                 nano_cpus=int(self.settings.default_cpu_limit * 1_000_000_000),
                 pids_limit=self.settings.default_pids_limit,
-                volumes={
-                    str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
-                    str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
-                },
+                volumes=volumes,
                 network=local_ctx.network_name if local_ctx else None,
-                environment={"PYTHONUNBUFFERED": "1"},
+                environment=self._sandbox_environment(),
             )
 
             log_thread = threading.Thread(target=self._stream_logs, args=(container, log_path), daemon=True)
@@ -250,9 +253,9 @@ class DockerRunner:
 
         raise FileNotFoundError("Sandbox image not found and build context is unavailable")
 
-    def _resolve_docker_bind_runs_dir(self) -> Path:
-        configured = Path(self.settings.docker_bind_runs_dir).resolve()
-        target = str(self.settings.runs_dir)
+    def _resolve_host_mount_path(self, configured_path: Path) -> Path:
+        configured = configured_path.resolve()
+        target = str(configured_path)
         if os.name == "nt":
             target = target.replace("\\", "/")
 
@@ -261,14 +264,38 @@ class DockerRunner:
             me = self.client.containers.get(container_id)
             for mount in me.attrs.get("Mounts", []):
                 destination = str(mount.get("Destination", ""))
-                if destination.rstrip("/") == target.rstrip("/"):
-                    source = mount.get("Source")
-                    if source:
-                        return Path(source)
+                destination_normalized = destination.rstrip("/")
+                target_normalized = target.rstrip("/")
+                if target_normalized == destination_normalized or target_normalized.startswith(f"{destination_normalized}/"):
+                    source = str(mount.get("Source", ""))
+                    if not source:
+                        continue
+                    suffix = target_normalized[len(destination_normalized) :].lstrip("/")
+                    return Path(source) / suffix if suffix else Path(source)
         except Exception:
             pass
 
         return configured
+
+    def _sandbox_environment(self) -> dict[str, str]:
+        env = {"PYTHONUNBUFFERED": "1", "HOME": "/home/ctf"}
+        passthrough = [item.strip() for item in self.settings.sandbox_env_passthrough.split(",") if item.strip()]
+        for name in passthrough:
+            value = os.getenv(name)
+            if value:
+                env[name] = value
+
+        env.setdefault("CODEX_HOME", "/home/ctf/.codex")
+        return env
+
+    def _sandbox_auth_volumes(self) -> dict[str, dict[str, str]]:
+        raw_path = self.settings.sandbox_codex_auth_path
+        if raw_path is None or not str(raw_path).strip():
+            return {}
+
+        configured = Path(str(raw_path).strip())
+        host_path = self._resolve_host_mount_path(configured)
+        return {str(host_path): {"bind": "/home/ctf/.codex", "mode": "ro"}}
 
     def _hydrate_challenge_artifacts(self, challenge: ChallengeManifest, target_dir: Path) -> None:
         for artifact in challenge.artifacts:

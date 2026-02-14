@@ -7,11 +7,17 @@ Points: {points}
 Challenge description:
 {description_md}
 
+Challenge artifact inventory:
+{challenge_artifacts}
+
 Stop criteria:
 {stop_criteria}
 
 Allowed endpoints (strict allowlist):
 {allowed_endpoints}
+
+Tooling guidance:
+{tooling_guide}
 
 Required output contract in /workspace/run:
 - result.json (strict schema)
@@ -21,3 +27,8 @@ Required output contract in /workspace/run:
 Work only within mounted paths:
 - Read-only challenge artifacts: /workspace/chal
 - Writable run output: /workspace/run
+
+Execution rules:
+- Prefer deterministic, scriptable steps and preserve evidence in README/result.
+- If you produce a solve script, ensure it is executable and documented.
+- Do not assume unrestricted network access; only use allowed endpoints.

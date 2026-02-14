@@ -12,6 +12,7 @@
 ## Challenges
 - `GET /challenges`
 - `GET /challenges/{challenge_id}`
+- `POST /challenges/artifacts/upload` (multipart form with `file`)
 
 ## Runs
 - `POST /runs`

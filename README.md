@@ -39,6 +39,10 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Control plane stores run directories under `./runs/` by default.
 - In Docker mode, set `DOCKER_BIND_RUNS_DIR` if `${PWD}/runs` does not resolve correctly on your host.
 - Local deploy (`docker compose` inside challenge artifacts) requires Docker CLI availability in control-plane runtime.
+- For Codex backend runs, provide auth using either:
+  - `OPENAI_API_KEY` (or `CODEX_API_KEY`) in control plane environment, or
+  - `SANDBOX_CODEX_AUTH_PATH` to mount persisted Codex auth into sandbox at `/home/ctf/.codex`.
+- Sandbox env passthrough is controlled by `SANDBOX_ENV_PASSTHROUGH`.
 
 ## Tests
 - Unit tests: `python -m pytest -q tests/unit`

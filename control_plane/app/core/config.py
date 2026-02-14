@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     default_cpu_limit: float = Field(default=1.0)
     default_mem_limit: str = Field(default="1g")
     default_pids_limit: int = Field(default=256)
+    sandbox_env_passthrough: str = Field(
+        default=(
+            "OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_ORG_ID,OPENAI_PROJECT_ID,"
+            "CODEX_API_KEY,CODEX_BASE_URL,CODEX_MODEL,CODEX_CLI_CMD,"
+            "ANTHROPIC_API_KEY,CLAUDE_CODE_CLI_CMD"
+        )
+    )
+    sandbox_codex_auth_path: str | None = Field(default=None)
 
 
 @lru_cache
