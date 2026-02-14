@@ -1,0 +1,393 @@
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import threading
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+import docker
+from docker.errors import DockerException, ImageNotFound, NotFound
+
+from control_plane.app.core.config import get_settings
+from control_plane.app.db.models import ChallengeManifest, Run, RunResult
+from control_plane.app.db.session import SessionLocal
+from control_plane.app.schemas.result_contract import SandboxResult
+from control_plane.app.stop_criteria.engine import evaluate_stop_criteria
+from control_plane.app.store import get_blob_store
+from control_plane.app.store.minio import run_result_object_keys
+
+
+@dataclass(slots=True)
+class LocalDeployContext:
+    network_name: str
+    compose_project: str
+    service_endpoints: list[dict]
+    container_names: list[str]
+
+
+class DockerRunner:
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self.blob_store = get_blob_store()
+        self.client = docker.DockerClient(base_url=self.settings.docker_socket)
+        self.docker_bind_runs_dir = self._resolve_docker_bind_runs_dir()
+
+    def launch_async(self, run_id: str) -> None:
+        thread = threading.Thread(target=self.execute_run, args=(run_id,), daemon=True)
+        thread.start()
+
+    def execute_run(self, run_id: str) -> None:
+        db = SessionLocal()
+        run: Run | None = None
+        container = None
+        local_ctx: LocalDeployContext | None = None
+
+        try:
+            run_uuid = UUID(run_id)
+            run = db.get(Run, run_uuid)
+            if run is None:
+                return
+
+            challenge = db.get(ChallengeManifest, run.challenge_id)
+            if challenge is None:
+                run.status = "blocked"
+                run.error_message = "Challenge not found"
+                run.finished_at = datetime.now(timezone.utc)
+                db.commit()
+                return
+
+            run.status = "running"
+            run.started_at = datetime.now(timezone.utc)
+            run.error_message = None
+            db.commit()
+
+            run_dir = self.settings.runs_dir / str(run.id)
+            chal_dir = run_dir / "chal"
+            run_mount_dir = run_dir / "run"
+            log_dir = run_dir / "logs"
+            service_log_dir = log_dir / "services"
+            log_path = log_dir / "sandbox.log"
+
+            chal_dir.mkdir(parents=True, exist_ok=True)
+            run_mount_dir.mkdir(parents=True, exist_ok=True)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            service_log_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                run_mount_dir.chmod(0o777)
+            except OSError:
+                pass
+
+            self._hydrate_challenge_artifacts(challenge=challenge, target_dir=chal_dir)
+
+            if run.local_deploy.get("enabled") and any(
+                artifact.get("name") in {"docker-compose.yml", "compose.yml"} for artifact in challenge.artifacts
+            ):
+                local_ctx = self._start_local_deploy(run_id=str(run.id), challenge_dir=chal_dir)
+                run.local_deploy = {
+                    "enabled": True,
+                    "network": local_ctx.network_name,
+                    "endpoints": local_ctx.service_endpoints,
+                    "service_logs": [f"logs/services/{name}.log" for name in local_ctx.container_names],
+                }
+                run.allowed_endpoints = [*run.allowed_endpoints, *local_ctx.service_endpoints]
+                db.commit()
+
+            spec = self._build_spec_payload(run=run, challenge=challenge)
+            spec_path = run_mount_dir / "spec.json"
+            spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
+
+            self._ensure_sandbox_image()
+
+            host_run_dir = self.docker_bind_runs_dir / str(run.id)
+            host_chal_dir = host_run_dir / "chal"
+            host_run_mount = host_run_dir / "run"
+
+            container = self.client.containers.run(
+                self.settings.sandbox_image,
+                detach=True,
+                name=f"ctf-sandbox-{str(run.id)[:8]}",
+                user="1000:1000",
+                mem_limit=self.settings.default_mem_limit,
+                nano_cpus=int(self.settings.default_cpu_limit * 1_000_000_000),
+                pids_limit=self.settings.default_pids_limit,
+                volumes={
+                    str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
+                    str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
+                },
+                network=local_ctx.network_name if local_ctx else None,
+                environment={"PYTHONUNBUFFERED": "1"},
+            )
+
+            log_thread = threading.Thread(target=self._stream_logs, args=(container, log_path), daemon=True)
+            log_thread.start()
+
+            max_minutes = int(run.budgets.get("max_minutes", 30))
+            timed_out = False
+            try:
+                wait_result = container.wait(timeout=max_minutes * 60)
+                status_code = int(wait_result.get("StatusCode", 1))
+            except Exception:
+                timed_out = True
+                status_code = 124
+                try:
+                    container.kill()
+                except DockerException:
+                    pass
+
+            log_thread.join(timeout=10)
+
+            if timed_out:
+                self._write_blocked_result(
+                    run_mount_dir=run_mount_dir,
+                    challenge=challenge,
+                    reason="Run timed out before completion",
+                    status="blocked",
+                )
+                final_status = "timeout"
+                run.error_message = "Run timed out"
+            else:
+                final_status = "blocked" if status_code != 0 else "blocked"
+                if status_code != 0:
+                    run.error_message = f"Sandbox exited with status code {status_code}"
+
+            result_path = run_mount_dir / "result.json"
+            readme_path = run_mount_dir / "README.md"
+
+            if not result_path.exists() or not readme_path.exists():
+                self._write_blocked_result(
+                    run_mount_dir=run_mount_dir,
+                    challenge=challenge,
+                    reason="Sandbox output contract missing result.json or README.md",
+                    status="blocked",
+                )
+
+            result_data = json.loads(result_path.read_text(encoding="utf-8"))
+            validated = SandboxResult.model_validate(result_data)
+
+            if final_status != "timeout":
+                stop_eval = evaluate_stop_criteria(run.stop_criteria, result_data, run_mount_dir)
+                result_data["stop_criterion_met"] = stop_eval.stop_criterion_met
+                result_data["status"] = stop_eval.final_status
+                result_path.write_text(json.dumps(result_data, indent=2), encoding="utf-8")
+                validated = SandboxResult.model_validate(result_data)
+                final_status = stop_eval.final_status
+
+            result_key, logs_key = run_result_object_keys(str(run.id))
+            self.blob_store.put_file(result_key, result_path)
+            self.blob_store.put_file(logs_key, log_path)
+
+            for deliverable in validated.deliverables:
+                deliverable_src = run_mount_dir / deliverable.path
+                if not deliverable_src.exists() or not deliverable_src.is_file():
+                    continue
+                deliverable_key = f"runs/{run.id}/deliverables/{deliverable.path}"
+                self.blob_store.put_file(deliverable_key, deliverable_src)
+
+            if local_ctx is not None:
+                self._capture_service_logs(local_ctx=local_ctx, run_id=str(run.id), service_log_dir=service_log_dir)
+
+            result_row = db.get(RunResult, run.id)
+            now = datetime.now(timezone.utc)
+            if result_row is None:
+                result_row = RunResult(
+                    run_id=run.id,
+                    status=final_status,
+                    result_json_object_key=result_key,
+                    logs_object_key=logs_key,
+                    started_at=run.started_at,
+                    finished_at=now,
+                )
+                db.add(result_row)
+            else:
+                result_row.status = final_status
+                result_row.result_json_object_key = result_key
+                result_row.logs_object_key = logs_key
+                result_row.finished_at = now
+
+            run.status = final_status
+            run.finished_at = now
+            if final_status in {"flag_found", "deliverable_produced"}:
+                run.error_message = None
+            db.commit()
+
+        except Exception as exc:
+            if run is not None:
+                run.status = "blocked"
+                run.error_message = str(exc)
+                run.finished_at = datetime.now(timezone.utc)
+                db.commit()
+        finally:
+            if container is not None:
+                try:
+                    container.remove(force=True)
+                except (DockerException, NotFound):
+                    pass
+            if local_ctx is not None:
+                self._stop_local_deploy(local_ctx=local_ctx, run_id=run_id)
+            db.close()
+
+    def _ensure_sandbox_image(self) -> None:
+        try:
+            self.client.images.get(self.settings.sandbox_image)
+            return
+        except ImageNotFound:
+            pass
+
+        build_context_candidates = [
+            Path("/app/images/ctf-agent-sandbox"),
+            Path("images/ctf-agent-sandbox"),
+        ]
+        for candidate in build_context_candidates:
+            if candidate.exists():
+                self.client.images.build(path=str(candidate), tag=self.settings.sandbox_image, rm=True)
+                return
+
+        raise FileNotFoundError("Sandbox image not found and build context is unavailable")
+
+    def _resolve_docker_bind_runs_dir(self) -> Path:
+        configured = Path(self.settings.docker_bind_runs_dir).resolve()
+        target = str(self.settings.runs_dir)
+        if os.name == "nt":
+            target = target.replace("\\", "/")
+
+        try:
+            container_id = socket.gethostname()
+            me = self.client.containers.get(container_id)
+            for mount in me.attrs.get("Mounts", []):
+                destination = str(mount.get("Destination", ""))
+                if destination.rstrip("/") == target.rstrip("/"):
+                    source = mount.get("Source")
+                    if source:
+                        return Path(source)
+        except Exception:
+            pass
+
+        return configured
+
+    def _hydrate_challenge_artifacts(self, challenge: ChallengeManifest, target_dir: Path) -> None:
+        for artifact in challenge.artifacts:
+            destination = target_dir / artifact["name"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            self.blob_store.download_file(artifact["object_key"], destination)
+
+    def _build_spec_payload(self, run: Run, challenge: ChallengeManifest) -> dict[str, Any]:
+        return {
+            "run_id": str(run.id),
+            "challenge_id": str(run.challenge_id),
+            "challenge_name": challenge.name,
+            "category": challenge.category,
+            "points": challenge.points,
+            "description_md": challenge.description_md,
+            "backend": run.backend,
+            "budgets": run.budgets,
+            "stop_criteria": run.stop_criteria,
+            "allowed_endpoints": run.allowed_endpoints,
+            "paths": run.paths,
+            "local_deploy": run.local_deploy,
+        }
+
+    def _stream_logs(self, container, log_path: Path) -> None:
+        with log_path.open("ab") as handle:
+            for chunk in container.logs(stream=True, follow=True):
+                handle.write(chunk)
+                handle.flush()
+
+    def _write_blocked_result(self, run_mount_dir: Path, challenge: ChallengeManifest, reason: str, status: str) -> None:
+        fallback = {
+            "challenge_id": str(challenge.id),
+            "challenge_name": challenge.name,
+            "status": status,
+            "stop_criterion_met": "none",
+            "flag_verification": {"method": "none", "verified": False, "details": reason},
+            "deliverables": [],
+            "repro_steps": [],
+            "key_findings": [],
+            "evidence": [],
+            "notes": reason,
+        }
+        (run_mount_dir / "README.md").write_text("# Run Output\n\nNo successful output produced.\n", encoding="utf-8")
+        (run_mount_dir / "result.json").write_text(json.dumps(fallback, indent=2), encoding="utf-8")
+
+    def _start_local_deploy(self, run_id: str, challenge_dir: Path) -> LocalDeployContext:
+        compose_file = challenge_dir / "docker-compose.yml"
+        if not compose_file.exists():
+            compose_file = challenge_dir / "compose.yml"
+        if not compose_file.exists():
+            raise FileNotFoundError("Local deploy enabled but docker-compose.yml/compose.yml not found")
+
+        network_name = f"ctf_run_{run_id.replace('-', '')[:12]}"
+        compose_project = f"ctfrun{run_id.replace('-', '')[:10]}"
+
+        self.client.networks.create(network_name, check_duplicate=True)
+
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "-p", compose_project, "up", "-d"],
+            cwd=challenge_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        service_endpoints: list[dict] = []
+        containers = self.client.containers.list(filters={"label": f"com.docker.compose.project={compose_project}"})
+        network = self.client.networks.get(network_name)
+        container_names: list[str] = []
+        for service_container in containers:
+            container_names.append(service_container.name)
+            try:
+                network.connect(service_container.id)
+            except DockerException:
+                pass
+            ports = service_container.attrs.get("NetworkSettings", {}).get("Ports", {})
+            for container_port in ports.keys():
+                raw_port = int(str(container_port).split("/")[0])
+                service_endpoints.append(
+                    {
+                        "type": "http",
+                        "host": service_container.name,
+                        "port": raw_port,
+                        "url": f"http://{service_container.name}:{raw_port}",
+                    }
+                )
+
+        return LocalDeployContext(
+            network_name=network_name,
+            compose_project=compose_project,
+            service_endpoints=service_endpoints,
+            container_names=container_names,
+        )
+
+    def _capture_service_logs(self, local_ctx: LocalDeployContext, run_id: str, service_log_dir: Path) -> None:
+        for container_name in local_ctx.container_names:
+            try:
+                service_container = self.client.containers.get(container_name)
+                log_blob = service_container.logs(stdout=True, stderr=True)
+                log_path = service_log_dir / f"{container_name}.log"
+                log_path.write_bytes(log_blob)
+                self.blob_store.put_file(f"runs/{run_id}/service-logs/{container_name}.log", log_path)
+            except DockerException:
+                continue
+
+    def _stop_local_deploy(self, local_ctx: LocalDeployContext, run_id: str) -> None:
+        run_dir = self.settings.runs_dir / str(run_id)
+        chal_dir = run_dir / "chal"
+
+        try:
+            subprocess.run(
+                ["docker", "compose", "-p", local_ctx.compose_project, "down", "-v"],
+                cwd=chal_dir,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            try:
+                self.client.networks.get(local_ctx.network_name).remove()
+            except DockerException:
+                pass
