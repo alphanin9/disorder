@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import time
 
 from fastapi import FastAPI
 
@@ -11,7 +12,17 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    get_blob_store().ensure_bucket()
+    last_error: Exception | None = None
+    for _ in range(30):
+        try:
+            get_blob_store().ensure_bucket()
+            last_error = None
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            time.sleep(2)
+    if last_error is not None:
+        raise last_error
     yield
 
 
