@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from control_plane.app.db.models import CTFEvent, ChallengeManifest
+from control_plane.app.db.models import ChallengeManifest, CTFEvent
 
 
 @pytest.mark.integration
@@ -19,7 +19,9 @@ def test_smoke_mock_run() -> None:
         pytest.skip("Set RUN_SMOKE=1 to run Docker-backed smoke test")
 
     api_url = os.getenv("CONTROL_PLANE_URL", "http://localhost:8000")
-    db_url = os.getenv("TEST_DATABASE_URL", "postgresql+psycopg://ctf:ctf@localhost:5432/ctf_harness")
+    db_url = os.getenv(
+        "TEST_DATABASE_URL", "postgresql+psycopg://ctf:ctf@localhost:5432/ctf_harness"
+    )
 
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -62,27 +64,45 @@ def test_smoke_mock_run() -> None:
     with httpx.Client(timeout=30.0) as client:
         start = client.post(
             f"{api_url}/runs",
-            json={"challenge_id": challenge_id, "backend": "mock", "local_deploy_enabled": False},
+            json={
+                "challenge_id": challenge_id,
+                "backend": "mock",
+                "local_deploy_enabled": False,
+            },
         )
         start.raise_for_status()
         run = start.json()
         run_id = run["id"]
 
-        deadline = time.time() + 180
+        deadline = time.time() + 300
         final_status = None
         while time.time() < deadline:
             status_resp = client.get(f"{api_url}/runs/{run_id}")
             status_resp.raise_for_status()
             payload = status_resp.json()
             final_status = payload["run"]["status"]
-            if final_status in {"flag_found", "deliverable_produced", "blocked", "timeout"}:
+            if final_status in {
+                "flag_found",
+                "deliverable_produced",
+                "blocked",
+                "timeout",
+            }:
                 break
             time.sleep(1)
 
-        assert final_status in {"flag_found", "deliverable_produced", "blocked", "timeout"}
+        assert final_status in {
+            "flag_found",
+            "deliverable_produced",
+            "blocked",
+            "timeout",
+        }
 
         result_resp = client.get(f"{api_url}/runs/{run_id}/result")
         result_resp.raise_for_status()
         result_payload = result_resp.json()
         assert result_payload["challenge_name"] == "Smoke Challenge"
-        assert result_payload["status"] in {"flag_found", "deliverable_produced", "blocked"}
+        assert result_payload["status"] in {
+            "flag_found",
+            "deliverable_produced",
+            "blocked",
+        }

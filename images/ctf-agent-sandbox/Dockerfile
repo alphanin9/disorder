@@ -7,35 +7,37 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      bash \
-      binutils \
-      build-essential \
-      ca-certificates \
-      curl \
-      file \
-      gdb \
-      gdb-multiarch \
-      git \
-      jq \
-      ltrace \
-      netcat-openbsd \
-      nodejs \
-      npm \
-      patchelf \
-      p7zip-full \
-      socat \
-      strace \
-      unzip \
-      vim-common \
-      wget \
-      zip && \
+    bash \
+    binutils \
+    build-essential \
+    ca-certificates \
+    curl \
+    file \
+    gdb \
+    gdb-multiarch \
+    git \
+    jq \
+    ltrace \
+    netcat-openbsd \
+    nodejs \
+    npm \
+    patchelf \
+    p7zip-full \
+    ripgrep \
+    socat \
+    strace \
+    unzip \
+    vim-common \
+    wget \
+    zip && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-      pwntools \
-      pycryptodome \
-      ropper \
-      z3-solver && \
+    libdebug \
+    pwntools \
+    pycryptodome \
+    ropper \
+    z3-solver && \
     npm install -g @openai/codex
 
 RUN useradd -m -u 1000 -s /bin/bash ctf && \
