@@ -45,6 +45,8 @@ jobs:
           pip install -e .[dev]
 
       - name: Build and start stack
+        env:
+          SANDBOX_BUILD_INSTALL_GHIDRA: "false"
         run: docker compose up -d --build postgres minio control_plane
 
       - name: Wait for control plane health
@@ -129,6 +131,8 @@ jobs:
         run: npx --prefix frontend playwright install --with-deps chromium
 
       - name: Build and start full stack
+        env:
+          SANDBOX_BUILD_INSTALL_GHIDRA: "false"
         run: docker compose up -d --build
 
       - name: Wait for backend and frontend health
