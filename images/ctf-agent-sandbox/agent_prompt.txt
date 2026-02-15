@@ -31,6 +31,9 @@ Work only within mounted paths:
 Execution rules:
 - Prefer deterministic, scriptable steps and preserve evidence in README/result.
 - If you produce a solve script, ensure it is executable and documented.
+- If required tooling is missing, you are explicitly allowed to install or fetch it into the run environment.
+- Prefer non-root methods first (for example `python -m pip install --user ...`, downloading standalone binaries, unpacking tools into `/workspace/run/tools` and adding to `PATH`).
+- Document any installed tooling and versions in `README.md` for reproducibility.
 - Network egress is allowed for fetching tooling, references, and dependencies as needed.
 - Prioritize challenge/local endpoints for target interaction and avoid broad host scanning.
 - `result.json` must strictly include:

@@ -4,7 +4,10 @@ CTF Sandbox Tooling Guide
 General workflow:
 - Start with triage on `/workspace/chal`: `ls -la`, `file`, `strings`, `sha256sum`.
 - Keep all generated outputs in `/workspace/run`.
-- Do not scan arbitrary targets; only use explicitly allowed endpoints.
+- You may install missing tools during a run when needed for solving.
+- Prefer user-space installs and portable binaries (non-root): `python -m pip install --user ...`, download/extract into `/workspace/run/tools`, then prepend PATH.
+- Record installed tool versions and how they were installed in `README.md`.
+- Do not scan arbitrary targets; prioritize configured challenge/local endpoints.
 
 Binary / pwn:
 - Use `pwn checksec <binary>` first.

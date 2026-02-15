@@ -5,17 +5,109 @@ import { Link, useParams } from "react-router-dom";
 
 import { getRun, getRunLogs, getRunResult } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatDateTime, isRunFinal } from "@/features/runs/utils";
 
 const MAX_LOG_BUFFER_BYTES = 8 * 1024 * 1024;
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+const MAX_TEXT_PREVIEW = 2000;
+
+type JsonObject = Record<string, unknown>;
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function truncateText(value: string): string {
+  if (value.length <= MAX_TEXT_PREVIEW) {
+    return value;
+  }
+  return `${value.slice(0, MAX_TEXT_PREVIEW)}\n...[truncated ${value.length - MAX_TEXT_PREVIEW} chars]`;
+}
+
+function formatCommandExecution(item: JsonObject, eventType: string): string {
+  const command = asString(item.command) || "<command>";
+  const status = asString(item.status);
+  const exitCode = item.exit_code;
+  const output = asString(item.aggregated_output);
+
+  if (eventType === "item.started") {
+    return `$ ${command}`;
+  }
+
+  const statusText = status ? ` (${status})` : "";
+  const exitText = typeof exitCode === "number" ? ` exit=${exitCode}` : "";
+  const header = `$ ${command}${statusText}${exitText}`;
+  if (!output) {
+    return header;
+  }
+  return `${header}\n${truncateText(output)}`;
+}
+
+function formatCodexJsonLine(line: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return line;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return line;
+  }
+
+  const payload = parsed as JsonObject;
+  const eventType = asString(payload.type);
+  if (!eventType) {
+    return line;
+  }
+
+  if (eventType === "thread.started") {
+    return `[thread] started ${asString(payload.thread_id)}`;
+  }
+  if (eventType === "turn.started") {
+    return "[turn] started";
+  }
+  if (eventType === "turn.completed") {
+    return "[turn] completed";
+  }
+
+  const itemValue = payload.item;
+  if ((eventType === "item.started" || eventType === "item.completed") && itemValue && typeof itemValue === "object") {
+    const item = itemValue as JsonObject;
+    const itemType = asString(item.type);
+    if (itemType === "command_execution") {
+      return formatCommandExecution(item, eventType);
+    }
+    if (itemType === "reasoning") {
+      return `[reasoning] ${asString(item.text)}`;
+    }
+    if (itemType === "agent_message") {
+      return `[agent] ${asString(item.text)}`;
+    }
+    return `[${eventType}] ${itemType || "item"}`;
+  }
+
+  return line;
+}
+
+function renderParsedLogs(rawLogs: string): string {
+  if (!rawLogs) {
+    return "";
+  }
+  return rawLogs
+    .split(/\r?\n/)
+    .map((line) => formatCodexJsonLine(line))
+    .join("\n");
+}
 
 export function RunPage() {
   const { runId } = useParams();
-  const [logs, setLogs] = useState("");
+  const [rawLogs, setRawLogs] = useState("");
   const [offset, setOffset] = useState(0);
   const [sseFailed, setSseFailed] = useState(false);
+  const [logMode, setLogMode] = useState<"parsed" | "raw">("parsed");
 
   const runQuery = useQuery({
     queryKey: ["run", runId],
@@ -46,7 +138,7 @@ export function RunPage() {
         };
 
         if (chunk.logs) {
-          setLogs((previous) => {
+          setRawLogs((previous) => {
             const combined = previous + chunk.logs;
             if (combined.length <= MAX_LOG_BUFFER_BYTES) {
               return combined;
@@ -89,7 +181,7 @@ export function RunPage() {
         }
 
         if (chunk.logs) {
-          setLogs((previous) => {
+          setRawLogs((previous) => {
             const combined = previous + chunk.logs;
             if (combined.length <= MAX_LOG_BUFFER_BYTES) {
               return combined;
@@ -128,6 +220,8 @@ export function RunPage() {
   });
 
   const runMeta = runQuery.data?.run;
+  const parsedLogs = useMemo(() => renderParsedLogs(rawLogs), [rawLogs]);
+  const logsToRender = logMode === "parsed" ? parsedLogs : rawLogs;
   const details = useMemo(
     () => [
       ["Run ID", runMeta?.id ?? "-"],
@@ -169,8 +263,32 @@ export function RunPage() {
       </Card>
 
       <Card>
-        <h3 className="mb-2 text-lg font-semibold">Live Logs</h3>
-        <pre className="max-h-96 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-emerald-300">{logs || "(no logs yet)"}</pre>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Live Logs</h3>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant={logMode === "parsed" ? "secondary" : "ghost"}
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                setLogMode("parsed");
+              }}
+            >
+              Parsed
+            </Button>
+            <Button
+              type="button"
+              variant={logMode === "raw" ? "secondary" : "ghost"}
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                setLogMode("raw");
+              }}
+            >
+              Raw JSONL
+            </Button>
+          </div>
+        </div>
+        <pre className="max-h-96 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-emerald-300">{logsToRender || "(no logs yet)"}</pre>
       </Card>
 
       <Card>
