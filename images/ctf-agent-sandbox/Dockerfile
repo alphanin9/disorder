@@ -1,9 +1,37 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+RUN useradd -m -u 1000 -s /bin/bash ctf && \
+    mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
+    chown -R ctf:ctf /workspace /home/ctf
+
+WORKDIR /workspace
+
+COPY agent_runner.py /usr/local/bin/agent_runner.py
+COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
+COPY crypto_math_mcp.py /usr/local/bin/crypto_math_mcp.py
+COPY ghidra_mcp.py /usr/local/bin/ghidra_mcp.py
+COPY ida_mcp.py /usr/local/bin/ida_mcp.py
+COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
+COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
+
+RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/crypto_math_mcp.py /usr/local/bin/ghidra_mcp.py /usr/local/bin/ida_mcp.py
+
+USER ctf
+
+
+FROM base AS ci
+
+ENTRYPOINT ["python", "/usr/local/bin/agent_runner.py"]
+
+
+FROM base AS full
+
+USER root
 
 ARG INSTALL_GHIDRA=1
 ARG GHIDRA_VERSION=11.1.2
@@ -78,22 +106,7 @@ RUN if [ "${INSTALL_GHIDRA}" = "1" ]; then \
 
 ENV GHIDRA_INSTALL_DIR=/opt/ghidra/current
 
-RUN useradd -m -u 1000 -s /bin/bash ctf && \
-    mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
-    chown -R ctf:ctf /workspace /home/ctf
-
-WORKDIR /workspace
-
-COPY agent_runner.py /usr/local/bin/agent_runner.py
-COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
-COPY crypto_math_mcp.py /usr/local/bin/crypto_math_mcp.py
-COPY ghidra_mcp.py /usr/local/bin/ghidra_mcp.py
-COPY ida_mcp.py /usr/local/bin/ida_mcp.py
-COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
-COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
-
-RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/crypto_math_mcp.py /usr/local/bin/ghidra_mcp.py /usr/local/bin/ida_mcp.py
-
 USER ctf
 
 ENTRYPOINT ["python", "/usr/local/bin/agent_runner.py"]
+

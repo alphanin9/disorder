@@ -55,6 +55,7 @@ class Settings(BaseSettings):
 
     sandbox_build_install_ghidra: bool = Field(default=True)
     sandbox_build_ghidra_version: str = Field(default="11.1.2")
+    sandbox_build_target: str = Field(default="full")
 
     @field_validator("sandbox_ida_path", mode="before")
     @classmethod

@@ -47,6 +47,7 @@ jobs:
       - name: Build and start stack
         env:
           SANDBOX_BUILD_INSTALL_GHIDRA: "false"
+          SANDBOX_BUILD_TARGET: "ci"
         run: docker compose up -d --build postgres minio control_plane
 
       - name: Wait for control plane health
@@ -133,6 +134,7 @@ jobs:
       - name: Build and start full stack
         env:
           SANDBOX_BUILD_INSTALL_GHIDRA: "false"
+          SANDBOX_BUILD_TARGET: "ci"
         run: docker compose up -d --build
 
       - name: Wait for backend and frontend health
