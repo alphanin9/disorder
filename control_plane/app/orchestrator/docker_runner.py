@@ -453,22 +453,33 @@ class DockerRunner:
 
         verification = result_data.get("flag_verification") if isinstance(result_data.get("flag_verification"), dict) else {}
         flag_value = str(result_data.get("flag") or "")
-        content_lines = [
-            "Flag candidate ready for submission",
-            f"Challenge: {challenge.name}",
-            f"Run ID: {run.id}",
-            f"Backend: {run.backend}",
-            (
-                "Verification: "
-                f"{verification.get('method', 'none')} "
-                f"(verified={verification.get('verified', False)})"
-            ),
-            f"Verification details: {verification.get('details', '')}",
-        ]
-        if self.settings.discord_notify_include_flag and flag_value:
-            content_lines.append(f"Flag: `{flag_value}`")
+        verified = bool(verification.get("verified", False))
+        method = str(verification.get("method", "none"))
+        details = str(verification.get("details", ""))
 
-        payload = {"content": "\n".join(content_lines)[:1900]}
+        color = 0x22C55E if verified else 0xF59E0B
+        embed_fields = [
+            {"name": "Challenge", "value": challenge.name[:1024] or "-", "inline": True},
+            {"name": "Run ID", "value": str(run.id), "inline": True},
+            {"name": "Backend", "value": run.backend[:1024] or "-", "inline": True},
+            {"name": "Verification Method", "value": method[:1024] or "none", "inline": True},
+            {"name": "Verified", "value": "true" if verified else "false", "inline": True},
+            {"name": "Details", "value": (details or "No details provided.")[:1024], "inline": False},
+        ]
+
+        if self.settings.discord_notify_include_flag and flag_value:
+            embed_fields.append({"name": "Flag Candidate", "value": f"`{flag_value[:1000]}`", "inline": False})
+
+        payload = {
+            "embeds": [
+                {
+                    "title": "Flag Candidate Ready for Submission",
+                    "description": "A run finished with `flag_found` and produced a candidate flag.",
+                    "color": color,
+                    "fields": embed_fields,
+                }
+            ]
+        }
         try:
             response = httpx.post(webhook_url, json=payload, timeout=10.0)
             response.raise_for_status()
