@@ -4,6 +4,10 @@ from pathlib import Path
 
 import importlib.util
 
+import pytest
+
+pytest.importorskip("sympy")
+
 
 def _load_crypto_module():
     module_path = Path(__file__).resolve().parents[2] / "images" / "ctf-agent-sandbox" / "crypto_math_mcp.py"
@@ -38,4 +42,3 @@ def test_sympy_eval_runs(tmp_path) -> None:
     res = module._sympy_eval("print(2+2)", cwd=tmp_path)
     assert res.ok is True
     assert "4" in res.stdout
-
