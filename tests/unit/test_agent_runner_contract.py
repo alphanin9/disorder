@@ -57,6 +57,7 @@ def test_codex_command_includes_flag_verify_mcp_by_default(tmp_path) -> None:
     assert source == "default-codex-command"
     assert stdin_input == "test"
     joined = " ".join(command)
+    assert "--json" in command
     assert "mcp_servers.flag_verify.command" in joined
     assert "mcp_servers.flag_verify.args" in joined
 

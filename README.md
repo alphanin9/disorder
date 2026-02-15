@@ -46,6 +46,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Sandbox env passthrough is controlled by `SANDBOX_ENV_PASSTHROUGH`.
 - Optional: set `CODEX_AUTH_ENCRYPTION_KEY` (Fernet key) for explicit auth-secret encryption key control.
 - Codex runs include a local MCP tool `verify_flag_candidate` by default (toggle with `CODEX_FLAG_VERIFY_MCP_ENABLED=0` in `SANDBOX_ENV_PASSTHROUGH`/env).
+- Default Codex invocation uses `codex exec --json` so live logs can stream JSONL events; set `CODEX_JSONL_LIVE_LOG_ONLY=0` to also stream Codex stderr live.
 - Optional Discord notifications for `flag_found` runs:
   - `DISCORD_WEBHOOK_URL`
   - `DISCORD_NOTIFY_ON_FLAG=true|false`

@@ -23,6 +23,13 @@ EVIDENCE_KINDS = {"command", "file", "log", "decompiler"}
 FLAG_VERIFICATION_METHODS = {"platform_submit", "local_check", "regex_only", "none"}
 
 
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -184,13 +191,8 @@ def _codex_auth_source() -> str | None:
 
 
 def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str], str | None, str]:
-    def _is_truthy(raw: str | None, default: bool = False) -> bool:
-        if raw is None:
-            return default
-        return raw.strip().lower() not in {"0", "false", "no", "off", ""}
-
     def _codex_mcp_overrides() -> list[str]:
-        if not _is_truthy(os.getenv("CODEX_FLAG_VERIFY_MCP_ENABLED"), default=True):
+        if not _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
             return []
 
         server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
@@ -214,6 +216,7 @@ def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str]
             "exec",
             "--skip-git-repo-check",
             "--dangerously-bypass-approvals-and-sandbox",
+            "--json",
             "--cd",
             str(RUN_DIR),
             "--output-last-message",
@@ -282,22 +285,28 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
+    stream_stderr_live = not (backend == "codex" and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True))
 
-    def _pump(stream, sink, printer) -> None:
+    def _pump(stream, sink, printer, live: bool) -> None:
         if stream is None:
             return
         try:
             for line in iter(stream.readline, ""):
                 sink.append(line)
-                print(line, end="", file=printer, flush=True)
+                if live:
+                    print(line, end="", file=printer, flush=True)
         finally:
             try:
                 stream.close()
             except Exception:
                 pass
 
-    stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, sys.stdout), daemon=True)
-    stderr_thread = threading.Thread(target=_pump, args=(process.stderr, stderr_chunks, sys.stderr), daemon=True)
+    stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, sys.stdout, True), daemon=True)
+    stderr_thread = threading.Thread(
+        target=_pump,
+        args=(process.stderr, stderr_chunks, sys.stderr, stream_stderr_live),
+        daemon=True,
+    )
     stdout_thread.start()
     stderr_thread.start()
 
@@ -312,6 +321,9 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     stderr_text = "".join(stderr_chunks)
 
     if returncode != 0:
+        if stderr_text and not stream_stderr_live:
+            print("[agent-runner] codex stderr tail:", file=sys.stderr, flush=True)
+            print(stderr_text[-8192:], file=sys.stderr, flush=True)
         message = _backend_failure_message(
             backend=backend,
             returncode=returncode,
