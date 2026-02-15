@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { createCtf, getCtfs, updateCtf } from "@/api/endpoints";
+import { createCtf, deleteCtf, getCtfs, updateCtf } from "@/api/endpoints";
 import type { CTFCreateRequest, CTFUpdateRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -101,6 +101,19 @@ export function CTFsPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteCtf,
+    onSuccess: () => {
+      if (editingId) {
+        setEditingId(null);
+        editForm.reset();
+      }
+      void queryClient.invalidateQueries({ queryKey: ["ctfs"] });
+      void queryClient.invalidateQueries({ queryKey: ["challenges"] });
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+
   useEffect(() => {
     if (!editingId || !ctfQuery.data) {
       return;
@@ -139,15 +152,31 @@ export function CTFsPage() {
                       slug: {ctf.slug} | platform: {ctf.platform ?? "-"}
                     </p>
                   </div>
-                  <Button
-                    variant="secondary"
-                    type="button"
-                    onClick={() => {
-                      setEditingId(ctf.id);
-                    }}
-                  >
-                    Edit
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      onClick={() => {
+                        setEditingId(ctf.id);
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      className="text-danger hover:text-danger"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => {
+                        if (!window.confirm(`Delete CTF '${ctf.name}' and all associated challenges/runs?`)) {
+                          return;
+                        }
+                        deleteMutation.mutate(ctf.id);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
                 <p className="mt-2 text-xs text-slate-700">
                   default flag regex: <code>{ctf.default_flag_regex ?? "(none)"}</code>
@@ -156,6 +185,7 @@ export function CTFsPage() {
             ))}
           </div>
         ) : null}
+        {deleteMutation.isError ? <p className="mt-3 text-sm text-danger">Failed to delete CTF.</p> : null}
       </Card>
 
       <div className="space-y-4">

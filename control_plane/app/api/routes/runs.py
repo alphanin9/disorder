@@ -5,7 +5,7 @@ import json
 from functools import lru_cache
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from control_plane.app.schemas.run import (
     RunResultRead,
     RunStatusResponse,
 )
+from control_plane.app.services.delete_service import delete_run
 from control_plane.app.services.run_service import create_run, get_run_or_none, list_runs
 from control_plane.app.store import get_blob_store
 
@@ -167,3 +168,16 @@ def get_run_result_payload(run_id: UUID, db: Session = Depends(get_db)) -> dict:
     import json
 
     return json.loads(raw.decode("utf-8"))
+
+
+@router.delete("/{run_id}", status_code=204)
+def delete_run_route(run_id: UUID, db: Session = Depends(get_db)) -> Response:
+    run = get_run_or_none(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    try:
+        delete_run(db, run)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)

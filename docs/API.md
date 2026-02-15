@@ -17,15 +17,26 @@
 - `DELETE /auth/codex/tags/{tag}`
 
 ## Challenges
-- `GET /challenges`
+- `GET /challenges?ctf_id=<uuid>`
 - `GET /challenges/{challenge_id}`
+- `POST /challenges`
+- `PATCH /challenges/{challenge_id}`
+- `DELETE /challenges/{challenge_id}`
 - `POST /challenges/artifacts/upload` (multipart form with `file`)
+
+## CTFs
+- `GET /ctfs`
+- `POST /ctfs`
+- `GET /ctfs/{ctf_id}`
+- `PATCH /ctfs/{ctf_id}`
+- `DELETE /ctfs/{ctf_id}` (also deletes associated challenges/runs)
 
 ## Runs
 - `GET /runs?active_only=true&status=running&challenge_id=<uuid>&limit=100`
 - `POST /runs`
   - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "stop_criteria": {...optional...}, "local_deploy_enabled": false }`
 - `GET /runs/{run_id}`
+- `DELETE /runs/{run_id}` (completed runs only)
 - `GET /runs/{run_id}/logs?offset=0&limit=65536`
 - `GET /runs/{run_id}/logs/stream` (SSE live log stream)
 - `GET /runs/{run_id}/result`

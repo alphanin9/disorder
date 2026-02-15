@@ -2,12 +2,13 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from control_plane.app.db.session import get_db
 from control_plane.app.schemas.ctf import CTFCreateRequest, CTFListResponse, CTFRead, CTFUpdateRequest
 from control_plane.app.services.challenge_service import create_ctf, get_ctf_or_none, list_ctfs, update_ctf
+from control_plane.app.services.delete_service import delete_ctf
 
 router = APIRouter(prefix="/ctfs", tags=["ctfs"])
 
@@ -45,3 +46,15 @@ def update_ctf_route(ctf_id: UUID, request: CTFUpdateRequest, db: Session = Depe
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return CTFRead.model_validate(updated, from_attributes=True)
+
+
+@router.delete("/{ctf_id}", status_code=204)
+def delete_ctf_route(ctf_id: UUID, db: Session = Depends(get_db)) -> Response:
+    row = get_ctf_or_none(db, str(ctf_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="ctf not found")
+    try:
+        delete_ctf(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)

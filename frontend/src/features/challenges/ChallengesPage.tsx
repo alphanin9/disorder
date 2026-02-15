@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { z } from "zod";
 
-import { createChallenge, getChallenges, getCtfs, uploadChallengeArtifact } from "@/api/endpoints";
+import { createChallenge, deleteChallenge, getChallenges, getCtfs, uploadChallengeArtifact } from "@/api/endpoints";
 import type { CTF, ChallengeArtifact, ChallengeCreateRequest, ChallengeManifest } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,10 +31,11 @@ function normalizeOptional(value: string | undefined): string | null {
 export function ChallengesPage() {
   const queryClient = useQueryClient();
   const [artifacts, setArtifacts] = useState<ChallengeArtifact[]>([]);
+  const [selectedCtfId, setSelectedCtfId] = useState<string>("all");
 
   const challengeQuery = useQuery({
-    queryKey: ["challenges"],
-    queryFn: getChallenges,
+    queryKey: ["challenges", selectedCtfId],
+    queryFn: () => getChallenges({ ctfId: selectedCtfId === "all" ? undefined : selectedCtfId }),
   });
 
   const ctfQuery = useQuery({
@@ -92,6 +93,14 @@ export function ChallengesPage() {
     mutationFn: uploadChallengeArtifact,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteChallenge,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["challenges"] });
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+
   const onArtifactFilesSelected = async (files: File[]) => {
     for (const file of files) {
       try {
@@ -142,8 +151,32 @@ export function ChallengesPage() {
   return (
     <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
       <Card>
-        <h2 className="mb-1 text-lg font-bold">Challenges</h2>
-        <p className="mb-5 text-sm text-slate-600">Challenges are grouped by CTF. Override flag regex per challenge only when needed.</p>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="mb-1 text-lg font-bold">Challenges</h2>
+            <p className="text-sm text-slate-600">Challenges are grouped by CTF. Override flag regex per challenge only when needed.</p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="challenge-ctf-filter">
+              Filter CTF
+            </label>
+            <select
+              id="challenge-ctf-filter"
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={selectedCtfId}
+              onChange={(event) => {
+                setSelectedCtfId(event.target.value);
+              }}
+            >
+              <option value="all">All CTFs</option>
+              {(ctfQuery.data?.items ?? []).map((ctf) => (
+                <option key={ctf.id} value={ctf.id}>
+                  {ctf.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         {challengeQuery.isLoading || ctfQuery.isLoading ? <p>Loading challenges...</p> : null}
         {challengeQuery.error || ctfQuery.error ? <p className="text-danger">Failed to load challenges.</p> : null}
@@ -171,6 +204,7 @@ export function ChallengesPage() {
                       <th className="px-2 py-2">Points</th>
                       <th className="px-2 py-2">Flag Regex</th>
                       <th className="px-2 py-2">Synced</th>
+                      <th className="px-2 py-2 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -188,6 +222,21 @@ export function ChallengesPage() {
                           {challenge.flag_regex ? <span className="ml-2 text-xs text-slate-500">(override)</span> : null}
                         </td>
                         <td className="px-2 py-3 text-slate-600">{new Date(challenge.synced_at).toLocaleString()}</td>
+                        <td className="px-2 py-3 text-right">
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-danger hover:underline"
+                            disabled={deleteMutation.isPending}
+                            onClick={() => {
+                              if (!window.confirm(`Delete challenge '${challenge.name}'?`)) {
+                                return;
+                              }
+                              deleteMutation.mutate(challenge.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -196,6 +245,7 @@ export function ChallengesPage() {
             </div>
           ))}
         </div>
+        {deleteMutation.isError ? <p className="mt-3 text-sm text-danger">Failed to delete challenge.</p> : null}
       </Card>
 
       <Card>

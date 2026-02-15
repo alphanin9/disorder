@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from control_plane.app.db.session import get_db
@@ -20,6 +20,7 @@ from control_plane.app.services.challenge_service import (
     list_challenges as list_challenges_service,
     update_challenge,
 )
+from control_plane.app.services.delete_service import delete_challenge
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import artifact_object_key, sha256_bytes
 
@@ -39,8 +40,11 @@ def _sanitize_artifact_name(raw_name: str | None) -> str:
 
 
 @router.get("", response_model=ChallengeListResponse)
-def list_challenges(db: Session = Depends(get_db)) -> ChallengeListResponse:
-    rows = list_challenges_service(db)
+def list_challenges(
+    ctf_id: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> ChallengeListResponse:
+    rows = list_challenges_service(db, ctf_id=str(ctf_id) if ctf_id else None)
     return ChallengeListResponse(items=[_to_read_model(row) for row in rows])
 
 
@@ -71,6 +75,18 @@ def update_challenge_route(challenge_id: UUID, request: ChallengeUpdateRequest, 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _to_read_model(updated)
+
+
+@router.delete("/{challenge_id}", status_code=204)
+def delete_challenge_route(challenge_id: UUID, db: Session = Depends(get_db)) -> Response:
+    row = get_challenge_or_none(db, str(challenge_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="challenge not found")
+    try:
+        delete_challenge(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @router.post("/artifacts/upload", response_model=ChallengeArtifactRead)

@@ -1,14 +1,16 @@
 import { useMemo } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
-import { getChallenges, getRuns } from "@/api/endpoints";
+import { deleteRun, getChallenges, getRuns } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatDateTime } from "@/features/runs/utils";
 
 export function RunsPage() {
+  const queryClient = useQueryClient();
   const activeRunsQuery = useQuery({
     queryKey: ["runs", "active"],
     queryFn: () => getRuns({ activeOnly: true, limit: 200 }),
@@ -35,6 +37,14 @@ export function RunsPage() {
     return map;
   }, [challengesQuery.data]);
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteRun,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["challenges"] });
+    },
+  });
+
   return (
     <div className="space-y-4">
       <Card>
@@ -60,6 +70,7 @@ export function RunsPage() {
                   <th className="px-2 py-2">Backend</th>
                   <th className="px-2 py-2">Status</th>
                   <th className="px-2 py-2">Started</th>
+                  <th className="px-2 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -80,6 +91,7 @@ export function RunsPage() {
                       <Badge status={run.status}>{run.status}</Badge>
                     </td>
                     <td className="px-2 py-3 text-slate-600">{formatDateTime(run.started_at)}</td>
+                    <td className="px-2 py-3 text-right text-xs text-slate-500">Active run</td>
                   </tr>
                 ))}
               </tbody>
@@ -111,11 +123,26 @@ export function RunsPage() {
                 <div className="flex items-center gap-2">
                   <Badge status={run.status}>{run.status}</Badge>
                   <span className="text-xs text-slate-600">{formatDateTime(run.started_at)}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs text-danger hover:text-danger"
+                    disabled={deleteMutation.isPending || run.status === "queued" || run.status === "running"}
+                    onClick={() => {
+                      if (!window.confirm(`Delete run ${run.id.slice(0, 8)} and all archived data?`)) {
+                        return;
+                      }
+                      deleteMutation.mutate(run.id);
+                    }}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </li>
             ))}
           </ul>
         ) : null}
+        {deleteMutation.isError ? <p className="mt-3 text-sm text-danger">Failed to delete run. Active runs cannot be deleted.</p> : null}
       </Card>
     </div>
   );

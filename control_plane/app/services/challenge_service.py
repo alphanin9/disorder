@@ -82,8 +82,10 @@ def update_ctf(db: Session, ctf: CTFEvent, request: CTFUpdateRequest) -> CTFEven
     return ctf
 
 
-def list_challenges(db: Session) -> list[ChallengeManifest]:
+def list_challenges(db: Session, ctf_id: str | None = None) -> list[ChallengeManifest]:
     stmt = select(ChallengeManifest).options(joinedload(ChallengeManifest.ctf)).order_by(ChallengeManifest.synced_at.desc())
+    if ctf_id is not None:
+        stmt = stmt.where(ChallengeManifest.ctf_id == ctf_id)
     return db.execute(stmt).scalars().all()
 
 

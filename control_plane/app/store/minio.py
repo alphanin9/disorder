@@ -58,6 +58,35 @@ class MinioBlobStore:
         except ClientError:
             return False
 
+    def delete_object(self, object_key: str) -> None:
+        try:
+            self._client.delete_object(Bucket=self.bucket, Key=object_key)
+        except ClientError:
+            return
+
+    def delete_prefix(self, prefix: str) -> int:
+        deleted = 0
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            contents = page.get("Contents") or []
+            if not contents:
+                continue
+
+            for index in range(0, len(contents), 1000):
+                batch = contents[index : index + 1000]
+                objects = [{"Key": str(item.get("Key"))} for item in batch if item.get("Key")]
+                if not objects:
+                    continue
+                try:
+                    self._client.delete_objects(
+                        Bucket=self.bucket,
+                        Delete={"Objects": objects, "Quiet": True},
+                    )
+                    deleted += len(objects)
+                except ClientError:
+                    continue
+        return deleted
+
 
 def artifact_object_key(platform: str, challenge_id: str, file_name: str, sha256_hex: str) -> str:
     safe_name = file_name.replace(" ", "_")

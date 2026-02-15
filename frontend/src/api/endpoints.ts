@@ -19,8 +19,13 @@ import type {
   RunStatusResponse,
 } from "@/api/models";
 
-export async function getChallenges(): Promise<ChallengeListResponse> {
-  return apiRequest<ChallengeListResponse>("/challenges");
+export async function getChallenges(options?: { ctfId?: string }): Promise<ChallengeListResponse> {
+  const params = new URLSearchParams();
+  if (options?.ctfId) {
+    params.set("ctf_id", options.ctfId);
+  }
+  const suffix = params.toString();
+  return apiRequest<ChallengeListResponse>(`/challenges${suffix ? `?${suffix}` : ""}`);
 }
 
 export async function getChallenge(challengeId: string): Promise<ChallengeManifest> {
@@ -38,6 +43,12 @@ export async function updateChallenge(challengeId: string, payload: ChallengeUpd
   return apiRequest<ChallengeManifest>(`/challenges/${challengeId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteChallenge(challengeId: string): Promise<void> {
+  await apiRequest<unknown>(`/challenges/${challengeId}`, {
+    method: "DELETE",
   });
 }
 
@@ -65,6 +76,12 @@ export async function updateCtf(ctfId: string, payload: CTFUpdateRequest): Promi
   return apiRequest<CTF>(`/ctfs/${ctfId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCtf(ctfId: string): Promise<void> {
+  await apiRequest<unknown>(`/ctfs/${ctfId}`, {
+    method: "DELETE",
   });
 }
 
@@ -103,6 +120,12 @@ export async function getRunLogs(runId: string, offset: number, limit = 65536): 
 
 export async function getRunResult(runId: string): Promise<RunResultPayload> {
   return apiRequest<RunResultPayload>(`/runs/${runId}/result`);
+}
+
+export async function deleteRun(runId: string): Promise<void> {
+  await apiRequest<unknown>(`/runs/${runId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getCodexAuthStatus(): Promise<CodexAuthStatusResponse> {
