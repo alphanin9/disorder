@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from functools import lru_cache
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from control_plane.app.core.config import get_settings
@@ -103,6 +106,53 @@ def get_run_logs(
         eof=eof,
         logs=chunk.decode("utf-8", errors="replace"),
     )
+
+
+@router.get("/{run_id}/logs/stream")
+async def stream_run_logs(run_id: UUID, db: Session = Depends(get_db)) -> StreamingResponse:
+    run = get_run_or_none(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    async def event_stream():
+        offset = 0
+        while True:
+            log_path = settings.runs_dir / str(run_id) / "logs" / "sandbox.log"
+            logs_text = ""
+            next_offset = offset
+            file_size = 0
+            if log_path.exists():
+                file_size = log_path.stat().st_size
+                if offset < file_size:
+                    with log_path.open("rb") as handle:
+                        handle.seek(offset)
+                        chunk = handle.read(65536)
+                    next_offset = offset + len(chunk)
+                    logs_text = chunk.decode("utf-8", errors="replace")
+
+            db.expire_all()
+            current = get_run_or_none(db, run_id)
+            is_active = bool(current and current.status in {"queued", "running"})
+            eof = not is_active and next_offset >= file_size
+
+            payload = {
+                "run_id": str(run_id),
+                "offset": offset,
+                "next_offset": next_offset,
+                "eof": eof,
+                "logs": logs_text,
+            }
+            if logs_text or eof:
+                yield f"data: {json.dumps(payload)}\n\n"
+            else:
+                yield ": keepalive\n\n"
+
+            offset = next_offset
+            if eof:
+                break
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/{run_id}/result")

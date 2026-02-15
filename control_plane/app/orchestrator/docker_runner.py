@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
 import threading
-from fnmatch import fnmatch
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,14 +14,17 @@ from typing import Any
 from uuid import UUID
 
 import docker
+import httpx
 from docker.errors import DockerException, ImageNotFound, NotFound
 from sqlalchemy.orm import Session
 
+from control_plane.app.adapters.ctfd import CTFdClient
 from control_plane.app.core.config import get_settings
 from control_plane.app.db.models import ChallengeManifest, Run, RunResult
 from control_plane.app.db.session import SessionLocal
 from control_plane.app.schemas.result_contract import SandboxResult
 from control_plane.app.services.auth_service import CodexAuthMaterial, get_codex_auth_material_for_tag
+from control_plane.app.services.sync_service import get_ctfd_config
 from control_plane.app.stop_criteria.engine import evaluate_stop_criteria
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import run_result_object_keys
@@ -185,6 +188,8 @@ class DockerRunner:
                 stop_eval = evaluate_stop_criteria(run.stop_criteria, result_data, run_mount_dir)
                 result_data["stop_criterion_met"] = stop_eval.stop_criterion_met
                 result_data["status"] = stop_eval.final_status
+                if stop_eval.final_status == "flag_found":
+                    result_data = self._verify_flag_result(db=db, challenge=challenge, result_data=result_data)
                 result_path.write_text(json.dumps(result_data, indent=2), encoding="utf-8")
                 validated = SandboxResult.model_validate(result_data)
                 final_status = stop_eval.final_status
@@ -202,6 +207,9 @@ class DockerRunner:
 
             if local_ctx is not None:
                 self._capture_service_logs(local_ctx=local_ctx, run_id=str(run.id), service_log_dir=service_log_dir)
+
+            if final_status == "flag_found":
+                self._notify_discord_flag(run=run, challenge=challenge, result_data=result_data)
 
             result_row = db.get(RunResult, run.id)
             now = datetime.now(timezone.utc)
@@ -307,22 +315,7 @@ class DockerRunner:
         staged_from_store_count = self._stage_codex_auth_material(staged_dir=staged_dir, files=auth_material)
         if staged_from_store_count > 0:
             return {str(host_run_dir / ".auth" / "codex"): {"bind": "/home/ctf/.codex", "mode": "ro"}}
-
-        raw_path = self.settings.sandbox_codex_auth_path
-        if raw_path is None or not str(raw_path).strip():
-            return {}
-
-        configured = Path(str(raw_path).strip())
-        mode = self.settings.sandbox_codex_auth_mode.strip().lower()
-
-        if mode == "direct":
-            host_path = self._resolve_host_mount_path(configured)
-            return {str(host_path): {"bind": "/home/ctf/.codex", "mode": "ro"}}
-
-        copied_count = self._stage_codex_auth_files(source_dir=configured, staged_dir=staged_dir)
-        if copied_count == 0:
-            return {}
-        return {str(host_run_dir / ".auth" / "codex"): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+        return {}
 
     def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
         copied = 0
@@ -336,34 +329,103 @@ class DockerRunner:
             copied += 1
         return copied
 
-    def _stage_codex_auth_files(self, source_dir: Path, staged_dir: Path) -> int:
-        if not source_dir.exists() or not source_dir.is_dir():
-            return 0
-
-        patterns = [pattern.strip().lower() for pattern in self.settings.sandbox_codex_auth_include.split(",") if pattern.strip()]
-        copied = 0
-
-        for source_file in source_dir.rglob("*"):
-            if not source_file.is_file():
-                continue
-
-            rel_posix = source_file.relative_to(source_dir).as_posix().lower()
-            name_lower = source_file.name.lower()
-            if not any(fnmatch(name_lower, pattern) or fnmatch(rel_posix, pattern) for pattern in patterns):
-                continue
-
-            target = staged_dir / source_file.relative_to(source_dir)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(source_file.read_bytes())
-            copied += 1
-
-        return copied
-
     def _cleanup_staged_auth(self, run_dir: Path) -> None:
         staged_root = run_dir / ".auth"
         if not staged_root.exists():
             return
         shutil.rmtree(staged_root, ignore_errors=True)
+
+    def _resolve_flag_regex(self, challenge: ChallengeManifest) -> str | None:
+        if challenge.flag_regex:
+            return challenge.flag_regex
+        if challenge.ctf and challenge.ctf.default_flag_regex:
+            return challenge.ctf.default_flag_regex
+        return None
+
+    def _verify_flag_result(self, db: Session, challenge: ChallengeManifest, result_data: dict[str, Any]) -> dict[str, Any]:
+        flag = result_data.get("flag")
+        if not isinstance(flag, str) or not flag.strip():
+            result_data["flag_verification"] = {
+                "method": "none",
+                "verified": False,
+                "details": "Run reached flag_found without a concrete flag value.",
+            }
+            return result_data
+
+        platform_error: str | None = None
+        if challenge.platform == "ctfd":
+            config = get_ctfd_config(db) or {}
+            base_url = config.get("base_url")
+            api_token = config.get("api_token")
+            if base_url and api_token:
+                client = CTFdClient(base_url=str(base_url), api_token=str(api_token))
+                try:
+                    attempt = client.submit_flag(challenge.platform_challenge_id, flag)
+                    verdict = str(attempt.get("status") or attempt.get("message") or attempt.get("result") or "unknown")
+                    verdict_lower = verdict.lower()
+                    verified = any(token in verdict_lower for token in ("correct", "already", "solved"))
+                    result_data["flag_verification"] = {
+                        "method": "platform_submit",
+                        "verified": verified,
+                        "details": f"CTFd submission verdict: {verdict}",
+                    }
+                    return result_data
+                except Exception as exc:
+                    platform_error = str(exc)
+                finally:
+                    client.close()
+
+        regex = self._resolve_flag_regex(challenge)
+        if regex:
+            try:
+                matched = bool(re.search(regex, flag))
+                details = f"Regex verification {'matched' if matched else 'did not match'} pattern: {regex}"
+                if platform_error:
+                    details += f"; platform submit unavailable: {platform_error}"
+                result_data["flag_verification"] = {
+                    "method": "regex_only",
+                    "verified": matched,
+                    "details": details,
+                }
+                return result_data
+            except re.error as exc:
+                platform_error = f"Invalid regex pattern: {exc}"
+
+        result_data["flag_verification"] = {
+            "method": "none",
+            "verified": False,
+            "details": platform_error or "No verification method configured.",
+        }
+        return result_data
+
+    def _notify_discord_flag(self, run: Run, challenge: ChallengeManifest, result_data: dict[str, Any]) -> None:
+        webhook_url = self.settings.discord_webhook_url
+        if not self.settings.discord_notify_on_flag or not webhook_url:
+            return
+
+        verification = result_data.get("flag_verification") if isinstance(result_data.get("flag_verification"), dict) else {}
+        flag_value = str(result_data.get("flag") or "")
+        content_lines = [
+            "Flag candidate ready for submission",
+            f"Challenge: {challenge.name}",
+            f"Run ID: {run.id}",
+            f"Backend: {run.backend}",
+            (
+                "Verification: "
+                f"{verification.get('method', 'none')} "
+                f"(verified={verification.get('verified', False)})"
+            ),
+            f"Verification details: {verification.get('details', '')}",
+        ]
+        if self.settings.discord_notify_include_flag and flag_value:
+            content_lines.append(f"Flag: `{flag_value}`")
+
+        payload = {"content": "\n".join(content_lines)[:1900]}
+        try:
+            response = httpx.post(webhook_url, json=payload, timeout=10.0)
+            response.raise_for_status()
+        except Exception as exc:
+            print(f"[orchestrator] discord webhook notification failed: {exc}", flush=True)
 
     def _hydrate_challenge_artifacts(self, challenge: ChallengeManifest, target_dir: Path) -> None:
         for artifact in challenge.artifacts:

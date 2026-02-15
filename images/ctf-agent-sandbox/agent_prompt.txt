@@ -20,7 +20,7 @@ Tooling guidance:
 {tooling_guide}
 
 Required output contract in /workspace/run:
-- result.json (strict schema)
+- result.json (strict schema, exact keys and value enums)
 - README.md
 - deliverables referenced by result.json
 
@@ -32,3 +32,10 @@ Execution rules:
 - Prefer deterministic, scriptable steps and preserve evidence in README/result.
 - If you produce a solve script, ensure it is executable and documented.
 - Do not assume unrestricted network access; only use allowed endpoints.
+- `result.json` must strictly include:
+  `challenge_id`, `challenge_name`, `status`, `stop_criterion_met`, `flag` (optional),
+  `flag_verification`, `deliverables`, `repro_steps`, `key_findings`, `evidence`, `notes`.
+- `status` must be one of: `flag_found`, `deliverable_produced`, `blocked`.
+- `stop_criterion_met` must be one of: `primary`, `secondary`, `none`.
+- If you identify a candidate flag, call MCP tool `verify_flag_candidate` and copy its returned object into `flag_verification`.
+- Do not invent alternate field names (for example `challenge`, `summary`, `flag_found` booleans) in place of the required schema.

@@ -27,6 +27,7 @@
   - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "stop_criteria": {...optional...}, "local_deploy_enabled": false }`
 - `GET /runs/{run_id}`
 - `GET /runs/{run_id}/logs?offset=0&limit=65536`
+- `GET /runs/{run_id}/logs/stream` (SSE live log stream)
 - `GET /runs/{run_id}/result`
 
 ## Notes

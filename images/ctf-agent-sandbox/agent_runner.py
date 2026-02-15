@@ -15,6 +15,11 @@ RUN_DIR = Path("/workspace/run")
 CHAL_DIR = Path("/workspace/chal")
 PROMPT_TEMPLATE_PATH = Path("/usr/local/share/agent_prompt.txt")
 TOOLING_GUIDE_PATH = Path("/usr/local/share/ctf_tooling_guide.md")
+RESULT_STATUSES = {"flag_found", "deliverable_produced", "blocked"}
+STOP_CRITERIA_VALUES = {"primary", "secondary", "none"}
+DELIVERABLE_TYPES = {"solve_script", "exploit", "binary", "writeup", "other"}
+EVIDENCE_KINDS = {"command", "file", "log", "decompiler"}
+FLAG_VERIFICATION_METHODS = {"platform_submit", "local_check", "regex_only", "none"}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -157,6 +162,26 @@ def _codex_auth_source() -> str | None:
 
 
 def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str], str | None, str]:
+    def _is_truthy(raw: str | None, default: bool = False) -> bool:
+        if raw is None:
+            return default
+        return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+    def _codex_mcp_overrides() -> list[str]:
+        if not _is_truthy(os.getenv("CODEX_FLAG_VERIFY_MCP_ENABLED"), default=True):
+            return []
+
+        server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
+        mcp_script = os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py")
+        mcp_args = json.dumps([mcp_script, "--spec", str(SPEC_PATH)])
+        command_value = json.dumps(server_command)
+        return [
+            "-c",
+            f"mcp_servers.flag_verify.command={command_value}",
+            "-c",
+            f"mcp_servers.flag_verify.args={mcp_args}",
+        ]
+
     if backend == "codex":
         command_template = os.getenv("CODEX_CLI_CMD")
         if command_template:
@@ -171,8 +196,9 @@ def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str]
             str(RUN_DIR),
             "--output-last-message",
             str(RUN_DIR / "codex_last_message.txt"),
-            "-",
         ]
+        command.extend(_codex_mcp_overrides())
+        command.append("-")
         return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command"
 
     command_template = os.getenv("CLAUDE_CODE_CLI_CMD")
@@ -188,7 +214,7 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         if auth_source is None:
             message = (
                 "Codex authentication is missing. Provide OPENAI_API_KEY (or CODEX_API_KEY), "
-                "or mount persisted Codex auth at /home/ctf/.codex."
+                "or upload tagged Codex auth files via the control-plane auth API/UI."
             )
             _write_readme("# Blocked\n\n" + message + "\n")
             _write_result(_blocked_result(spec, message))
@@ -249,12 +275,122 @@ def _backend_failure_message(backend: str, returncode: int, stdout: str, stderr:
         if any(token in output for token in ("401", "unauthorized", "invalid api key", "authentication failed")):
             return (
                 "Codex authentication failed. Set OPENAI_API_KEY (or CODEX_API_KEY), "
-                "or pass through a valid Codex auth directory mounted at /home/ctf/.codex."
+                "or verify uploaded tagged Codex auth files are valid for this run."
             )
         if "429" in output or "rate limit" in output:
             return "Codex request failed due to rate limiting. Retry later or use different credentials."
 
     return f"Backend command failed with exit code {returncode}"
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str, Any]:
+    if not isinstance(raw_result, dict):
+        return _blocked_result(spec, "result.json did not contain an object")
+
+    challenge_id = str(raw_result.get("challenge_id") or spec.get("challenge_id") or "")
+    challenge_name = str(raw_result.get("challenge_name") or spec.get("challenge_name") or "")
+
+    raw_status = str(raw_result.get("status") or "").strip().lower()
+    if raw_status in RESULT_STATUSES:
+        status = raw_status
+    elif raw_result.get("flag_found") is True or (raw_result.get("flag") and "flag" in raw_status):
+        status = "flag_found"
+    elif "deliverable" in raw_status or isinstance(raw_result.get("deliverables"), list):
+        status = "deliverable_produced"
+    else:
+        status = "blocked"
+
+    raw_stop = str(raw_result.get("stop_criterion_met") or "").strip().lower()
+    if raw_stop in STOP_CRITERIA_VALUES:
+        stop_criterion_met = raw_stop
+    elif status == "flag_found":
+        stop_criterion_met = "primary"
+    elif status == "deliverable_produced":
+        stop_criterion_met = "secondary"
+    else:
+        stop_criterion_met = "none"
+
+    flag = raw_result.get("flag")
+    if status != "flag_found":
+        flag = None
+    elif flag is not None:
+        flag = str(flag)
+
+    raw_fv = raw_result.get("flag_verification") if isinstance(raw_result.get("flag_verification"), dict) else {}
+    method = str(raw_fv.get("method") or "").strip().lower()
+    if method not in FLAG_VERIFICATION_METHODS:
+        method = "regex_only" if status == "flag_found" else "none"
+    verified = bool(raw_fv.get("verified", False))
+    details = str(raw_fv.get("details") or raw_result.get("summary") or raw_result.get("notes") or "").strip()
+    if not details:
+        if status == "flag_found":
+            details = "Flag reported by backend but not yet verified."
+        elif status == "blocked":
+            details = "Backend did not provide a valid completion result."
+        else:
+            details = "No verification details provided."
+
+    deliverables: list[dict[str, str]] = []
+    raw_deliverables = raw_result.get("deliverables")
+    if isinstance(raw_deliverables, list):
+        for entry in raw_deliverables:
+            if isinstance(entry, str):
+                deliverables.append({"path": entry, "type": "other", "how_to_run": "See README.md"})
+                continue
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path") or "").strip()
+            if not path:
+                continue
+            dtype = str(entry.get("type") or "other").strip().lower()
+            if dtype not in DELIVERABLE_TYPES:
+                dtype = "other"
+            how_to_run = str(entry.get("how_to_run") or "See README.md").strip()
+            deliverables.append({"path": path, "type": dtype, "how_to_run": how_to_run})
+
+    evidence: list[dict[str, str]] = []
+    raw_evidence = raw_result.get("evidence")
+    if isinstance(raw_evidence, list):
+        for entry in raw_evidence:
+            if not isinstance(entry, dict):
+                continue
+            kind = str(entry.get("kind") or "file").strip().lower()
+            if kind not in EVIDENCE_KINDS:
+                kind = "file"
+            ref = str(entry.get("ref") or "").strip()
+            if not ref:
+                continue
+            summary = str(entry.get("summary") or "").strip() or "No summary provided."
+            evidence.append({"kind": kind, "ref": ref, "summary": summary})
+    elif isinstance(raw_result.get("evidence_files"), list):
+        for entry in raw_result.get("evidence_files", []):
+            ref = str(entry).strip()
+            if ref:
+                evidence.append({"kind": "file", "ref": ref, "summary": "Referenced by backend output."})
+
+    return {
+        "challenge_id": challenge_id,
+        "challenge_name": challenge_name,
+        "status": status,
+        "stop_criterion_met": stop_criterion_met,
+        "flag": flag,
+        "flag_verification": {
+            "method": method,
+            "verified": verified,
+            "details": details,
+        },
+        "deliverables": deliverables,
+        "repro_steps": _string_list(raw_result.get("repro_steps")),
+        "key_findings": _string_list(raw_result.get("key_findings")),
+        "evidence": evidence,
+        "notes": str(raw_result.get("notes") or raw_result.get("summary") or "").strip(),
+    }
 
 
 def _ensure_contract(spec: dict[str, Any]) -> int:
@@ -269,10 +405,13 @@ def _ensure_contract(spec: dict[str, Any]) -> int:
         return 3
 
     try:
-        json.loads(result_path.read_text(encoding="utf-8"))
+        parsed = json.loads(result_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         _write_result(_blocked_result(spec, f"Invalid result.json: {exc}"))
         return 3
+
+    normalized = _normalize_result_payload(spec, parsed)
+    _write_result(normalized)
 
     return 0
 

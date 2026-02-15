@@ -9,11 +9,13 @@ import { Card } from "@/components/ui/card";
 import { formatDateTime, isRunFinal } from "@/features/runs/utils";
 
 const MAX_LOG_BUFFER_BYTES = 8 * 1024 * 1024;
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 export function RunPage() {
   const { runId } = useParams();
   const [logs, setLogs] = useState("");
   const [offset, setOffset] = useState(0);
+  const [sseFailed, setSseFailed] = useState(false);
 
   const runQuery = useQuery({
     queryKey: ["run", runId],
@@ -27,9 +29,52 @@ export function RunPage() {
 
   const status = runQuery.data?.run.status;
   const terminal = Boolean(status && isRunFinal(status));
+  const useSse = !sseFailed && typeof EventSource !== "undefined";
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !useSse) {
+      return;
+    }
+
+    const source = new EventSource(`${API_BASE}/runs/${runId}/logs/stream`);
+    source.onmessage = (event) => {
+      try {
+        const chunk = JSON.parse(event.data) as {
+          logs: string;
+          next_offset: number;
+          eof: boolean;
+        };
+
+        if (chunk.logs) {
+          setLogs((previous) => {
+            const combined = previous + chunk.logs;
+            if (combined.length <= MAX_LOG_BUFFER_BYTES) {
+              return combined;
+            }
+            return combined.slice(combined.length - MAX_LOG_BUFFER_BYTES);
+          });
+        }
+        setOffset(chunk.next_offset);
+
+        if (chunk.eof) {
+          source.close();
+        }
+      } catch {
+        // Ignore malformed chunks and continue stream.
+      }
+    };
+    source.onerror = () => {
+      source.close();
+      setSseFailed(true);
+    };
+
+    return () => {
+      source.close();
+    };
+  }, [runId, useSse]);
+
+  useEffect(() => {
+    if (!runId || useSse) {
       return;
     }
 
@@ -74,7 +119,7 @@ export function RunPage() {
         clearTimeout(timer);
       }
     };
-  }, [offset, runId, terminal]);
+  }, [offset, runId, terminal, useSse]);
 
   const resultQuery = useQuery({
     queryKey: ["run-result", runId],

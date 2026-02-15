@@ -64,6 +64,18 @@ class CTFdClient:
         response.raise_for_status()
         return response.content
 
+    def submit_flag(self, challenge_id: str, submission: str) -> dict:
+        response = self._client.post(
+            f"{self.base_url}/api/v1/challenges/attempt",
+            json={"challenge_id": challenge_id, "submission": submission},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data")
+        if isinstance(data, dict):
+            return data
+        return {"status": "unknown", "raw": data}
+
 
 def normalize_description(raw_description: str | None) -> str:
     raw = raw_description or ""

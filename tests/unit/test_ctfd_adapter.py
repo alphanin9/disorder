@@ -29,6 +29,9 @@ def test_ctfd_client_parsing() -> None:
             )
         )
         mock_router.get("https://ctfd.local/files/chal.zip").mock(return_value=httpx.Response(200, content=b"abc"))
+        mock_router.post("https://ctfd.local/api/v1/challenges/attempt").mock(
+            return_value=httpx.Response(200, json={"data": {"status": "correct"}})
+        )
 
         client = CTFdClient(base_url="https://ctfd.local", api_token="token")
         try:
@@ -42,5 +45,8 @@ def test_ctfd_client_parsing() -> None:
 
             data = client.download_file("/files/chal.zip")
             assert data == b"abc"
+
+            verify = client.submit_flag("1", "flag{demo}")
+            assert verify["status"] == "correct"
         finally:
             client.close()

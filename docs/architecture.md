@@ -17,9 +17,9 @@
 4. Orchestrator hydrates artifacts into `runs/<run_id>/chal`, writes `runs/<run_id>/run/spec.json`, starts sandbox.
    - Challenge artifacts are mounted read-only at `/workspace/chal`.
    - Run workspace is mounted read-write at `/workspace/run`.
-   - Selected env vars and optional Codex auth mount are passed into sandbox.
-   - Codex auth mount supports `auth_only` mode (default) to stage token/auth files only, or `direct` mode for full directory pass-through.
-   - If tagged auth files are uploaded via API/UI, orchestrator stages the active tag from encrypted store before host-path fallback.
+   - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
+   - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only to `/home/ctf/.codex`.
+   - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.

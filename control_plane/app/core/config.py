@@ -36,14 +36,15 @@ class Settings(BaseSettings):
             "ANTHROPIC_API_KEY,CLAUDE_CODE_CLI_CMD"
         )
     )
-    sandbox_codex_auth_path: str | None = Field(default=None)
-    sandbox_codex_auth_mode: str = Field(default="auth_only")
     sandbox_codex_auth_include: str = Field(
         default="auth.json,credentials.json,token.json,*auth*.json,*token*.json,*credential*.json,*session*.json"
     )
     sandbox_codex_auth_tag: str | None = Field(default=None)
     codex_auth_encryption_key: str | None = Field(default=None)
     codex_auth_max_file_bytes: int = Field(default=262_144)
+    discord_webhook_url: str | None = Field(default=None)
+    discord_notify_on_flag: bool = Field(default=True)
+    discord_notify_include_flag: bool = Field(default=True)
 
 
 @lru_cache
