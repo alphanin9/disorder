@@ -1,15 +1,17 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
-import { createRun, getChallenge, getCtfs, updateChallenge, uploadChallengeArtifact } from "@/api/endpoints";
+import { createRun, getChallenge, getCtfs, getRuns, updateChallenge, uploadChallengeArtifact } from "@/api/endpoints";
 import type { ChallengeArtifact, RunCreateRequest } from "@/api/models";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
+import { formatDateTime } from "@/features/runs/utils";
 
 const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
@@ -64,6 +66,13 @@ export function ChallengeDetailPage() {
   const ctfQuery = useQuery({
     queryKey: ["ctfs"],
     queryFn: getCtfs,
+  });
+
+  const challengeRunsQuery = useQuery({
+    queryKey: ["runs", "challenge", challengeId],
+    queryFn: () => getRuns({ challengeId: challengeId ?? "", limit: 100 }),
+    enabled: Boolean(challengeId),
+    refetchInterval: 2000,
   });
 
   const editForm = useForm<EditForm>({
@@ -191,6 +200,15 @@ export function ChallengeDetailPage() {
       }
     }
   };
+
+  const activeRuns = useMemo(
+    () => (challengeRunsQuery.data?.items ?? []).filter((run) => run.status === "queued" || run.status === "running"),
+    [challengeRunsQuery.data],
+  );
+  const finishedRuns = useMemo(
+    () => (challengeRunsQuery.data?.items ?? []).filter((run) => !["queued", "running"].includes(run.status)),
+    [challengeRunsQuery.data],
+  );
 
   if (!challengeId) {
     return <p>Missing challenge id.</p>;
@@ -377,6 +395,54 @@ export function ChallengeDetailPage() {
             {runMutation.isPending ? "Starting..." : "Start Run"}
           </Button>
         </form>
+
+        <section className="mt-6 border-t border-slate-200 pt-4">
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Runs for This Challenge</h4>
+          {challengeRunsQuery.isLoading ? <p className="text-sm">Loading runs...</p> : null}
+          {challengeRunsQuery.error ? <p className="text-sm text-danger">Failed to load challenge runs.</p> : null}
+
+          <div className="space-y-3">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Active</p>
+              {activeRuns.length === 0 ? <p className="text-xs text-slate-600">No active runs.</p> : null}
+              <ul className="space-y-2">
+                {activeRuns.map((run) => (
+                  <li key={run.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <Link className="font-semibold text-accent hover:underline" to={`/runs/${run.id}`}>
+                        {run.id.slice(0, 8)}
+                      </Link>
+                      <Badge status={run.status}>{run.status}</Badge>
+                    </div>
+                    <p className="mt-1 text-slate-600">
+                      {run.backend} | started {formatDateTime(run.started_at)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Completed</p>
+              {finishedRuns.length === 0 ? <p className="text-xs text-slate-600">No completed runs yet.</p> : null}
+              <ul className="max-h-60 space-y-2 overflow-auto">
+                {finishedRuns.map((run) => (
+                  <li key={run.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <Link className="font-semibold text-accent hover:underline" to={`/runs/${run.id}`}>
+                        {run.id.slice(0, 8)}
+                      </Link>
+                      <Badge status={run.status}>{run.status}</Badge>
+                    </div>
+                    <p className="mt-1 text-slate-600">
+                      {run.backend} | finished {formatDateTime(run.finished_at)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
       </Card>
     </div>
   );

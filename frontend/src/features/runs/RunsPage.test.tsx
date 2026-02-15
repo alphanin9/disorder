@@ -80,7 +80,7 @@ describe("RunsPage", () => {
     );
 
     expect(await screen.findByText(/Active Agent Runner Instances/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Warmup/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Warmup/i)).length).toBeGreaterThan(0);
     expect(await screen.findByRole("cell", { name: /running/i })).toBeInTheDocument();
   });
 });

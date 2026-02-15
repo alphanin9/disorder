@@ -75,10 +75,13 @@ export async function createRun(payload: RunCreateRequest): Promise<RunRead> {
   });
 }
 
-export async function getRuns(options?: { status?: string[]; activeOnly?: boolean; limit?: number }): Promise<RunListResponse> {
+export async function getRuns(options?: { status?: string[]; challengeId?: string; activeOnly?: boolean; limit?: number }): Promise<RunListResponse> {
   const params = new URLSearchParams();
   if (options?.activeOnly) {
     params.set("active_only", "true");
+  }
+  if (options?.challengeId) {
+    params.set("challenge_id", options.challengeId);
   }
   if (options?.limit) {
     params.set("limit", String(options.limit));

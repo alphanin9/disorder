@@ -45,6 +45,7 @@ def start_run(request: RunCreateRequest, db: Session = Depends(get_db)) -> RunRe
 @router.get("", response_model=RunListResponse)
 def get_runs(
     status: list[str] | None = Query(default=None),
+    challenge_id: UUID | None = Query(default=None),
     active_only: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -54,7 +55,7 @@ def get_runs(
         statuses.extend(["queued", "running"])
 
     unique_statuses = sorted(set(statuses)) if statuses else None
-    runs = list_runs(db, statuses=unique_statuses, limit=limit)
+    runs = list_runs(db, statuses=unique_statuses, challenge_id=challenge_id, limit=limit)
     return RunListResponse(items=[RunRead.model_validate(run, from_attributes=True) for run in runs])
 
 

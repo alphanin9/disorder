@@ -103,6 +103,10 @@ export function RunsPage() {
                     {run.id.slice(0, 8)}
                   </Link>
                   <span className="text-slate-600">{run.backend}</span>
+                  <span className="text-slate-600">|</span>
+                  <Link className="text-accent hover:underline" to={`/challenges/${run.challenge_id}`}>
+                    {challengeNames.get(run.challenge_id) ?? run.challenge_id.slice(0, 8)}
+                  </Link>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge status={run.status}>{run.status}</Badge>
