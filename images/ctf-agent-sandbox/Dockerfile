@@ -23,6 +23,8 @@ RUN apt-get update && \
       npm \
       patchelf \
       p7zip-full \
+      openjdk-21-jre-headless \
+      ripgrep \
       socat \
       strace \
       unzip \
@@ -32,11 +34,18 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
+      libdebug \
       pwntools \
       pycryptodome \
       ropper \
+      sympy \
+      pyghidra-mcp \
       z3-solver && \
     npm install -g @openai/codex
+
+# micromamba is used by the crypto MCP to optionally bootstrap Sage into /workspace/run (on-demand).
+RUN curl -fsSL https://micro.mamba.pm/api/micromamba/linux-64/latest | \
+      tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba
 
 RUN useradd -m -u 1000 -s /bin/bash ctf && \
     mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
@@ -46,10 +55,13 @@ WORKDIR /workspace
 
 COPY agent_runner.py /usr/local/bin/agent_runner.py
 COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
+COPY crypto_math_mcp.py /usr/local/bin/crypto_math_mcp.py
+COPY ghidra_mcp.py /usr/local/bin/ghidra_mcp.py
+COPY ida_mcp.py /usr/local/bin/ida_mcp.py
 COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
 COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
 
-RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py
+RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/crypto_math_mcp.py /usr/local/bin/ghidra_mcp.py /usr/local/bin/ida_mcp.py
 
 USER ctf
 

@@ -23,7 +23,14 @@ Crypto / forensics:
 - Use `pycryptodome` primitives rather than ad-hoc implementations.
 - Use `z3-solver` for constraint solving where applicable.
 - Validate decoded output assumptions before concluding.
+- Prefer the crypto/math MCP tools for common operations (factorization, CRT, modular inverse), and use `sympy_eval`/`sage_eval` for scratch work.
+- `sage_eval` may bootstrap a local conda env under `/workspace/run/.mamba` on first use (large download; document it).
 
 Web / protocol:
 - Use `curl`, `wget`, `nc`, `socat` against allowlisted endpoints only.
 - Save request/response evidence snippets in `/workspace/run`.
+
+MCP power tools:
+- Flag verification: call MCP tool `verify_flag_candidate` with a candidate flag and copy the returned `flag_verification` object into `result.json`.
+- Crypto/math: `factorint`, `crt`, `modinv`, `is_prime`, `sympy_eval`, `sage_eval`.
+- Reverse engineering (Ghidra): use the `ghidra` MCP for headless import/decompile/analysis; it may download/setup Ghidra under `/workspace/run/tools/ghidra` on first use.

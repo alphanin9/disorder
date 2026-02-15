@@ -59,8 +59,8 @@ def test_codex_command_includes_flag_verify_mcp_by_default(tmp_path) -> None:
     joined = " ".join(command)
     assert "--json" in command
     assert 'model_reasoning_effort="medium"' in joined
-    assert "mcp_servers.flag_verify.command" in joined
-    assert "mcp_servers.flag_verify.args" in joined
+    assert "mcp_servers.flag_verify.command" not in joined
+    assert "mcp_servers.flag_verify.args" not in joined
 
 
 def test_codex_command_can_disable_flag_verify_mcp(monkeypatch, tmp_path) -> None:
@@ -89,3 +89,23 @@ def test_seed_writable_codex_home_copies_auth_seed(monkeypatch, tmp_path) -> Non
     copied = codex_home / "auth.json"
     assert copied.exists()
     assert copied.read_text(encoding="utf-8") == '{"token":"x"}'
+
+
+def test_write_codex_config_writes_mcp_servers(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FLAG_VERIFY_MCP_ENABLED", "1")
+    monkeypatch.setenv("CODEX_CRYPTO_MCP_ENABLED", "1")
+    monkeypatch.setenv("CODEX_GHIDRA_MCP_ENABLED", "1")
+
+    spec = {"backend": "codex"}
+    module._write_codex_config(spec)
+
+    config_path = codex_home / "config.toml"
+    assert config_path.exists()
+    parsed = __import__("tomllib").loads(config_path.read_text(encoding="utf-8"))
+    servers = parsed.get("mcp_servers") or {}
+    assert "flag_verify" in servers
+    assert "crypto_math" in servers
+    assert "ghidra" in servers
