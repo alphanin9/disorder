@@ -130,7 +130,11 @@ def main() -> int:
         return 2
 
     # Delegate MCP protocol to pyghidra-mcp (stdio transport).
-    os.execvp(entry, [entry, "stdio", *unknown])
+    #
+    # NOTE: pyghidra-mcp uses flags for transport selection; passing "stdio" as a positional
+    # argument is interpreted as an input binary path and can cause immediate exit.
+    project_path = os.getenv("PYGHIDRA_MCP_PROJECT_PATH") or str((workspace / "ghidra_projects").resolve())
+    os.execvp(entry, [entry, "--transport", "stdio", "--project-path", project_path, *unknown])
     return 1
 
 

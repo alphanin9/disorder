@@ -11,34 +11,20 @@ DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
 
 def _read_message() -> dict[str, Any] | None:
-    headers: dict[str, str] = {}
+    # MCP stdio transport uses JSON-RPC messages serialized as one JSON per line.
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
             return None
-        if line in {b"\r\n", b"\n"}:
-            break
-        header_line = line.decode("utf-8", errors="replace").strip()
-        if not header_line or ":" not in header_line:
+        text = line.decode("utf-8", errors="replace").strip()
+        if not text:
             continue
-        name, value = header_line.split(":", 1)
-        headers[name.strip().lower()] = value.strip()
-
-    length_raw = headers.get("content-length")
-    if not length_raw:
-        return None
-    length = int(length_raw)
-    body = sys.stdin.buffer.read(length)
-    if not body:
-        return None
-    return json.loads(body.decode("utf-8"))
+        return json.loads(text)
 
 
 def _write_message(payload: dict[str, Any]) -> None:
-    encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    sys.stdout.buffer.write(f"Content-Length: {len(encoded)}\r\n\r\n".encode("ascii"))
-    sys.stdout.buffer.write(encoded)
-    sys.stdout.buffer.flush()
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
 
 
 def _json_rpc_result(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
@@ -164,4 +150,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
