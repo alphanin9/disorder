@@ -176,8 +176,10 @@ class DockerRunner:
                     status="blocked",
                 )
 
-            result_data = json.loads(result_path.read_text(encoding="utf-8"))
-            validated = SandboxResult.model_validate(result_data)
+            result_data, validated = self._load_validated_result(
+                run_mount_dir=run_mount_dir,
+                challenge=challenge,
+            )
 
             if final_status != "timeout":
                 stop_eval = evaluate_stop_criteria(run.stop_criteria, result_data, run_mount_dir)
@@ -406,6 +408,34 @@ class DockerRunner:
         }
         (run_mount_dir / "README.md").write_text("# Run Output\n\nNo successful output produced.\n", encoding="utf-8")
         (run_mount_dir / "result.json").write_text(json.dumps(fallback, indent=2), encoding="utf-8")
+
+    def _load_validated_result(self, run_mount_dir: Path, challenge: ChallengeManifest) -> tuple[dict[str, Any], SandboxResult]:
+        result_path = run_mount_dir / "result.json"
+
+        try:
+            result_data = json.loads(result_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self._write_blocked_result(
+                run_mount_dir=run_mount_dir,
+                challenge=challenge,
+                reason=f"Invalid result.json content: {exc}",
+                status="blocked",
+            )
+            result_data = json.loads(result_path.read_text(encoding="utf-8"))
+
+        try:
+            validated = SandboxResult.model_validate(result_data)
+            return result_data, validated
+        except Exception as exc:
+            self._write_blocked_result(
+                run_mount_dir=run_mount_dir,
+                challenge=challenge,
+                reason=f"Invalid result.json schema: {exc}",
+                status="blocked",
+            )
+            result_data = json.loads(result_path.read_text(encoding="utf-8"))
+            validated = SandboxResult.model_validate(result_data)
+            return result_data, validated
 
     def _start_local_deploy(self, run_id: str, challenge_dir: Path) -> LocalDeployContext:
         compose_file = challenge_dir / "docker-compose.yml"
