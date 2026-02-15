@@ -304,6 +304,7 @@ class DockerRunner:
                 env[name] = value
 
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
+        env.setdefault("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
         return env
 
     def _sandbox_auth_volumes(self, db: Session, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
@@ -314,7 +315,7 @@ class DockerRunner:
         _, auth_material = get_codex_auth_material_for_tag(db, requested_tag=requested_tag)
         staged_from_store_count = self._stage_codex_auth_material(staged_dir=staged_dir, files=auth_material)
         if staged_from_store_count > 0:
-            return {str(host_run_dir / ".auth" / "codex"): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+            return {str(host_run_dir / ".auth" / "codex"): {"bind": "/workspace/run/.auth_seed/codex", "mode": "ro"}}
         return {}
 
     def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:

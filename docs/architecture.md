@@ -18,7 +18,7 @@
    - Challenge artifacts are mounted read-only at `/workspace/chal`.
    - Run workspace is mounted read-write at `/workspace/run`.
    - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
-   - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only to `/home/ctf/.codex`.
+   - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only as seed material; sandbox startup copies it into writable `CODEX_HOME`.
    - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.

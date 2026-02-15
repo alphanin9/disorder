@@ -71,3 +71,19 @@ def test_codex_command_can_disable_flag_verify_mcp(monkeypatch, tmp_path) -> Non
     joined = " ".join(command)
     assert "mcp_servers.flag_verify.command" not in joined
     assert "mcp_servers.flag_verify.args" not in joined
+
+
+def test_seed_writable_codex_home_copies_auth_seed(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    seed_dir = tmp_path / "seed"
+    codex_home = tmp_path / "codex-home"
+    seed_dir.mkdir(parents=True)
+    (seed_dir / "auth.json").write_text('{"token":"x"}', encoding="utf-8")
+
+    monkeypatch.setenv("CODEX_AUTH_SEED_DIR", str(seed_dir))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    module._seed_writable_codex_home()
+
+    copied = codex_home / "auth.json"
+    assert copied.exists()
+    assert copied.read_text(encoding="utf-8") == '{"token":"x"}'

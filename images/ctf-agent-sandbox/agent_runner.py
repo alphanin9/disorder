@@ -36,6 +36,27 @@ def _write_readme(content: str) -> None:
     (RUN_DIR / "README.md").write_text(content, encoding="utf-8")
 
 
+def _seed_writable_codex_home() -> None:
+    codex_home = Path(os.getenv("CODEX_HOME") or (Path.home() / ".codex"))
+    seed_dir = Path(os.getenv("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex"))
+    if not seed_dir.exists() or not seed_dir.is_dir():
+        codex_home.mkdir(parents=True, exist_ok=True)
+        return
+
+    codex_home.mkdir(parents=True, exist_ok=True)
+    for source in seed_dir.rglob("*"):
+        if source.is_dir():
+            continue
+        rel = source.relative_to(seed_dir)
+        target = codex_home / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+        try:
+            target.chmod(0o600)
+        except OSError:
+            pass
+
+
 def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
     return {
         "challenge_id": spec.get("challenge_id", ""),
@@ -421,6 +442,7 @@ def main() -> int:
         print("[agent-runner] missing spec.json", file=sys.stderr)
         return 1
 
+    _seed_writable_codex_home()
     spec = _read_json(SPEC_PATH)
     backend = spec.get("backend", "mock")
     artifact_list = _list_challenge_artifacts()
