@@ -25,7 +25,7 @@ export function RunsPage() {
 
   const challengesQuery = useQuery({
     queryKey: ["challenges"],
-    queryFn: getChallenges,
+    queryFn: () => getChallenges(),
     staleTime: 30_000,
   });
 
