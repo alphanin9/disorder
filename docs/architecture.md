@@ -17,6 +17,7 @@
    - Challenge artifacts are mounted read-only at `/workspace/chal`.
    - Run workspace is mounted read-write at `/workspace/run`.
    - Selected env vars and optional Codex auth mount are passed into sandbox.
+   - Codex auth mount supports `auth_only` mode (default) to stage token/auth files only, or `direct` mode for full directory pass-through.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.

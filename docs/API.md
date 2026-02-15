@@ -15,6 +15,7 @@
 - `POST /challenges/artifacts/upload` (multipart form with `file`)
 
 ## Runs
+- `GET /runs?active_only=true&status=running&limit=100`
 - `POST /runs`
   - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "stop_criteria": {...optional...}, "local_deploy_enabled": false }`
 - `GET /runs/{run_id}`

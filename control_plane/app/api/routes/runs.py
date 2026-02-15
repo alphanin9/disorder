@@ -10,8 +10,15 @@ from control_plane.app.core.config import get_settings
 from control_plane.app.db.models import RunResult
 from control_plane.app.db.session import get_db
 from control_plane.app.orchestrator.docker_runner import DockerRunner
-from control_plane.app.schemas.run import RunCreateRequest, RunLogsResponse, RunRead, RunResultRead, RunStatusResponse
-from control_plane.app.services.run_service import create_run, get_run_or_none
+from control_plane.app.schemas.run import (
+    RunCreateRequest,
+    RunListResponse,
+    RunLogsResponse,
+    RunRead,
+    RunResultRead,
+    RunStatusResponse,
+)
+from control_plane.app.services.run_service import create_run, get_run_or_none, list_runs
 from control_plane.app.store import get_blob_store
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -33,6 +40,22 @@ def start_run(request: RunCreateRequest, db: Session = Depends(get_db)) -> RunRe
 
     get_orchestrator().launch_async(str(run.id))
     return RunRead.model_validate(run, from_attributes=True)
+
+
+@router.get("", response_model=RunListResponse)
+def get_runs(
+    status: list[str] | None = Query(default=None),
+    active_only: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> RunListResponse:
+    statuses = list(status or [])
+    if active_only:
+        statuses.extend(["queued", "running"])
+
+    unique_statuses = sorted(set(statuses)) if statuses else None
+    runs = list_runs(db, statuses=unique_statuses, limit=limit)
+    return RunListResponse(items=[RunRead.model_validate(run, from_attributes=True) for run in runs])
 
 
 @router.get("/{run_id}", response_model=RunStatusResponse)

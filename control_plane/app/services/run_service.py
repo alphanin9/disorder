@@ -65,5 +65,8 @@ def get_run_or_none(db: Session, run_id: UUID) -> Run | None:
     return db.get(Run, run_id)
 
 
-def list_runs(db: Session) -> list[Run]:
-    return db.execute(select(Run).order_by(Run.started_at.desc())).scalars().all()
+def list_runs(db: Session, statuses: list[str] | None = None, limit: int = 100) -> list[Run]:
+    statement = select(Run).order_by(Run.started_at.desc()).limit(limit)
+    if statuses:
+        statement = statement.where(Run.status.in_(statuses))
+    return db.execute(statement).scalars().all()

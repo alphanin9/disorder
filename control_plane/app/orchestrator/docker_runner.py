@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import threading
+from fnmatch import fnmatch
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,12 +108,13 @@ class DockerRunner:
             host_run_dir = self.docker_bind_runs_dir / str(run.id)
             host_chal_dir = host_run_dir / "chal"
             host_run_mount = host_run_dir / "run"
+            auth_mount_volume = self._sandbox_auth_volumes(run_dir=run_dir, host_run_dir=host_run_dir)
 
             volumes = {
                 str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
                 str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
             }
-            volumes.update(self._sandbox_auth_volumes())
+            volumes.update(auth_mount_volume)
 
             container = self.client.containers.run(
                 self.settings.sandbox_image,
@@ -288,14 +290,47 @@ class DockerRunner:
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         return env
 
-    def _sandbox_auth_volumes(self) -> dict[str, dict[str, str]]:
+    def _sandbox_auth_volumes(self, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
         raw_path = self.settings.sandbox_codex_auth_path
         if raw_path is None or not str(raw_path).strip():
             return {}
 
         configured = Path(str(raw_path).strip())
-        host_path = self._resolve_host_mount_path(configured)
-        return {str(host_path): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+        mode = self.settings.sandbox_codex_auth_mode.strip().lower()
+
+        if mode == "direct":
+            host_path = self._resolve_host_mount_path(configured)
+            return {str(host_path): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+
+        staged_dir = run_dir / ".auth" / "codex"
+        staged_dir.mkdir(parents=True, exist_ok=True)
+        copied_count = self._stage_codex_auth_files(source_dir=configured, staged_dir=staged_dir)
+        if copied_count == 0:
+            return {}
+        return {str(host_run_dir / ".auth" / "codex"): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+
+    def _stage_codex_auth_files(self, source_dir: Path, staged_dir: Path) -> int:
+        if not source_dir.exists() or not source_dir.is_dir():
+            return 0
+
+        patterns = [pattern.strip().lower() for pattern in self.settings.sandbox_codex_auth_include.split(",") if pattern.strip()]
+        copied = 0
+
+        for source_file in source_dir.rglob("*"):
+            if not source_file.is_file():
+                continue
+
+            rel_posix = source_file.relative_to(source_dir).as_posix().lower()
+            name_lower = source_file.name.lower()
+            if not any(fnmatch(name_lower, pattern) or fnmatch(rel_posix, pattern) for pattern in patterns):
+                continue
+
+            target = staged_dir / source_file.relative_to(source_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source_file.read_bytes())
+            copied += 1
+
+        return copied
 
     def _hydrate_challenge_artifacts(self, challenge: ChallengeManifest, target_dir: Path) -> None:
         for artifact in challenge.artifacts:

@@ -10,6 +10,7 @@ import type {
   CTFListResponse,
   CTFUpdateRequest,
   RunCreateRequest,
+  RunListResponse,
   RunLogsResponse,
   RunRead,
   RunResultPayload,
@@ -70,6 +71,21 @@ export async function createRun(payload: RunCreateRequest): Promise<RunRead> {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getRuns(options?: { status?: string[]; activeOnly?: boolean; limit?: number }): Promise<RunListResponse> {
+  const params = new URLSearchParams();
+  if (options?.activeOnly) {
+    params.set("active_only", "true");
+  }
+  if (options?.limit) {
+    params.set("limit", String(options.limit));
+  }
+  for (const status of options?.status ?? []) {
+    params.append("status", status);
+  }
+  const suffix = params.toString();
+  return apiRequest<RunListResponse>(`/runs${suffix ? `?${suffix}` : ""}`);
 }
 
 export async function getRun(runId: string): Promise<RunStatusResponse> {

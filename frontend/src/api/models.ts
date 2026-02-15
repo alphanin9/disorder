@@ -4,6 +4,7 @@ export type ChallengeManifest = components["schemas"]["ChallengeManifestRead"];
 export type ChallengeListResponse = components["schemas"]["ChallengeListResponse"];
 export type RunCreateRequest = components["schemas"]["RunCreateRequest"];
 export type RunRead = components["schemas"]["RunRead"];
+export type RunListResponse = { items: RunRead[] };
 export type RunStatusResponse = components["schemas"]["RunStatusResponse"];
 export type RunLogsResponse = components["schemas"]["RunLogsResponse"];
 export type CTF = components["schemas"]["CTFRead"];

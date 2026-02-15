@@ -48,3 +48,7 @@ class RunResultRead(BaseModel):
 class RunStatusResponse(BaseModel):
     run: RunRead
     result: RunResultRead | None = None
+
+
+class RunListResponse(BaseModel):
+    items: list[RunRead]

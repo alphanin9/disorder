@@ -37,6 +37,10 @@ class Settings(BaseSettings):
         )
     )
     sandbox_codex_auth_path: str | None = Field(default=None)
+    sandbox_codex_auth_mode: str = Field(default="auth_only")
+    sandbox_codex_auth_include: str = Field(
+        default="auth.json,credentials.json,token.json,*auth*.json,*token*.json,*credential*.json,*session*.json"
+    )
 
 
 @lru_cache

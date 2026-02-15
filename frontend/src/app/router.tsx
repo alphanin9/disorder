@@ -4,6 +4,7 @@ import { AppLayout } from "@/features/layout/AppLayout";
 import { ChallengeDetailPage } from "@/features/challenges/ChallengeDetailPage";
 import { ChallengesPage } from "@/features/challenges/ChallengesPage";
 import { CTFsPage } from "@/features/ctfs/CTFsPage";
+import { RunsPage } from "@/features/runs/RunsPage";
 import { RunPage } from "@/features/runs/RunPage";
 
 export const router = createBrowserRouter([
@@ -18,6 +19,10 @@ export const router = createBrowserRouter([
       {
         path: "challenges/:challengeId",
         element: <ChallengeDetailPage />,
+      },
+      {
+        path: "runs",
+        element: <RunsPage />,
       },
       {
         path: "runs/:runId",
