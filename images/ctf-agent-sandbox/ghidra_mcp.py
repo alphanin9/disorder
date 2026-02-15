@@ -52,7 +52,7 @@ def _ensure_ghidra_install(workspace: Path) -> Path:
     env_dir = os.getenv("GHIDRA_INSTALL_DIR")
     if env_dir:
         p = Path(env_dir)
-        if p.exists():
+        if p.exists() and p.is_dir():
             return p
 
     tools_root = workspace / "tools" / "ghidra"

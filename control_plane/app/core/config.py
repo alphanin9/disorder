@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     sandbox_ida_mcp_enabled: bool = Field(default=False)
     sandbox_ida_path: Path | None = Field(default=None)
 
+    sandbox_build_install_ghidra: bool = Field(default=True)
+    sandbox_build_ghidra_version: str = Field(default="11.1.2")
+
     @field_validator("sandbox_ida_path", mode="before")
     @classmethod
     def _empty_ida_path_to_none(cls, value):  # type: ignore[no-untyped-def]

@@ -326,7 +326,11 @@ class DockerRunner:
         ]
         for candidate in build_context_candidates:
             if candidate.exists():
-                self.client.images.build(path=str(candidate), tag=self.settings.sandbox_image, rm=True)
+                buildargs = {
+                    "INSTALL_GHIDRA": "1" if self.settings.sandbox_build_install_ghidra else "0",
+                    "GHIDRA_VERSION": str(self.settings.sandbox_build_ghidra_version),
+                }
+                self.client.images.build(path=str(candidate), tag=self.settings.sandbox_image, rm=True, buildargs=buildargs)
                 return
 
         raise FileNotFoundError("Sandbox image not found and build context is unavailable")
