@@ -482,6 +482,9 @@ class DockerRunner:
             self.blob_store.download_file(artifact["object_key"], destination)
 
     def _build_spec_payload(self, run: Run, challenge: ChallengeManifest) -> dict[str, Any]:
+        reasoning_effort = str(run.budgets.get("reasoning_effort") or "medium").lower()
+        if reasoning_effort not in {"low", "medium", "high", "xhigh"}:
+            reasoning_effort = "medium"
         return {
             "run_id": str(run.id),
             "challenge_id": str(run.challenge_id),
@@ -490,6 +493,7 @@ class DockerRunner:
             "points": challenge.points,
             "description_md": challenge.description_md,
             "backend": run.backend,
+            "reasoning_effort": reasoning_effort,
             "budgets": run.budgets,
             "stop_criteria": run.stop_criteria,
             "allowed_endpoints": run.allowed_endpoints,

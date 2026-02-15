@@ -444,6 +444,11 @@ export interface components {
              * @default mock
              */
             backend: string;
+            /**
+             * Reasoning Effort
+             * @default medium
+             */
+            reasoning_effort: "low" | "medium" | "high" | "xhigh";
             /** Budgets */
             budgets?: {
                 /** Max Minutes */

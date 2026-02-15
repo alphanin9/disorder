@@ -50,6 +50,7 @@ def create_run(db: Session, request: RunCreateRequest) -> Run:
             "max_minutes": int(request.budgets.max_minutes),
             "max_commands": int(request.budgets.max_commands) if request.budgets.max_commands is not None else None,
         }
+    budgets["reasoning_effort"] = request.reasoning_effort
 
     run = Run(
         challenge_id=challenge.id,

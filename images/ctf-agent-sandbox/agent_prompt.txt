@@ -13,6 +13,9 @@ Challenge artifact inventory:
 Stop criteria:
 {stop_criteria}
 
+Requested reasoning effort:
+{reasoning_effort}
+
 Known challenge/local endpoints:
 {allowed_endpoints}
 

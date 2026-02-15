@@ -238,6 +238,8 @@ export function RunPage() {
     () => [
       ["Run ID", runMeta?.id ?? "-"],
       ["Backend", runMeta?.backend ?? "-"],
+      ["Reasoning", String((runMeta?.budgets as Record<string, unknown> | undefined)?.reasoning_effort ?? "medium")],
+      ["Budget (minutes)", String((runMeta?.budgets as Record<string, unknown> | undefined)?.max_minutes ?? 30)],
       ["Started", formatDateTime(runMeta?.started_at)],
       ["Finished", formatDateTime(runMeta?.finished_at)],
     ],

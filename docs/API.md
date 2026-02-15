@@ -34,7 +34,7 @@
 ## Runs
 - `GET /runs?active_only=true&status=running&challenge_id=<uuid>&limit=100`
 - `POST /runs`
-  - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "budgets": { "max_minutes": 30, "max_commands": null }, "stop_criteria": {...optional...}, "local_deploy_enabled": false }`
+  - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "reasoning_effort": "low|medium|high|xhigh", "budgets": { "max_minutes": 30, "max_commands": null }, "stop_criteria": {...optional...}, "local_deploy_enabled": false }`
 - `GET /runs/{run_id}`
 - `POST /runs/{run_id}/terminate` (force stop a queued/running run)
 - `DELETE /runs/{run_id}` (completed runs only)

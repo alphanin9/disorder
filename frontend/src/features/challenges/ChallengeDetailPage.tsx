@@ -15,6 +15,7 @@ import { formatDateTime } from "@/features/runs/utils";
 
 const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
+  reasoning_effort: z.enum(["low", "medium", "high", "xhigh"]),
   goal: z.enum(["flag", "deliverable"]),
   local_deploy_enabled: z.boolean().default(false),
   max_minutes: z.coerce.number().int().min(1, "Must be at least 1 minute").max(24 * 60, "Must be <= 1440 minutes"),
@@ -144,6 +145,7 @@ export function ChallengeDetailPage() {
     resolver: zodResolver(runSchema),
     defaultValues: {
       backend: "mock",
+      reasoning_effort: "medium",
       goal: "flag",
       local_deploy_enabled: false,
       max_minutes: 30,
@@ -183,6 +185,7 @@ export function ChallengeDetailPage() {
       const payload: RunCreateRequest = {
         challenge_id: challengeId ?? "",
         backend: values.backend,
+        reasoning_effort: values.reasoning_effort,
         budgets: {
           max_minutes: values.max_minutes,
           max_commands: values.max_commands,
@@ -397,6 +400,18 @@ export function ChallengeDetailPage() {
             <select id="goal" className="w-full rounded-md border border-slate-300 px-3 py-2" {...runForm.register("goal")}>
               <option value="flag">Keep going until flag is found</option>
               <option value="deliverable">Stop once a working artifact is produced</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="reasoning_effort">
+              Reasoning Level
+            </label>
+            <select id="reasoning_effort" className="w-full rounded-md border border-slate-300 px-3 py-2" {...runForm.register("reasoning_effort")}>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
             </select>
           </div>
 

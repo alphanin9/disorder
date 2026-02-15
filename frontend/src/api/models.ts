@@ -4,6 +4,7 @@ export type ChallengeManifest = components["schemas"]["ChallengeManifestRead"];
 export type ChallengeListResponse = components["schemas"]["ChallengeListResponse"];
 type BaseRunCreateRequest = components["schemas"]["RunCreateRequest"];
 export type RunCreateRequest = BaseRunCreateRequest & {
+  reasoning_effort?: "low" | "medium" | "high" | "xhigh";
   budgets?: {
     max_minutes: number;
     max_commands?: number | null;

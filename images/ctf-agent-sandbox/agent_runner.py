@@ -108,6 +108,7 @@ def _render_prompt(spec: dict[str, Any]) -> str:
         category=spec.get("category", "unknown"),
         points=spec.get("points", 0),
         description_md=spec.get("description_md", ""),
+        reasoning_effort=spec.get("reasoning_effort", "medium"),
         challenge_artifacts=artifacts_preview,
         stop_criteria=json.dumps(spec.get("stop_criteria", {}), indent=2),
         allowed_endpoints=json.dumps(spec.get("allowed_endpoints", []), indent=2),
@@ -191,6 +192,20 @@ def _codex_auth_source() -> str | None:
 
 
 def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str], str | None, str]:
+    reasoning_effort = "medium"
+    if SPEC_PATH.exists():
+        try:
+            spec_payload = _read_json(SPEC_PATH)
+            raw_effort = spec_payload.get("reasoning_effort")
+            if not isinstance(raw_effort, str):
+                budgets = spec_payload.get("budgets")
+                if isinstance(budgets, dict):
+                    raw_effort = budgets.get("reasoning_effort")
+            if isinstance(raw_effort, str) and raw_effort.lower() in {"low", "medium", "high", "xhigh"}:
+                reasoning_effort = raw_effort.lower()
+        except Exception:
+            reasoning_effort = "medium"
+
     def _codex_mcp_overrides() -> list[str]:
         if not _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
             return []
@@ -209,7 +224,12 @@ def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str]
     if backend == "codex":
         command_template = os.getenv("CODEX_CLI_CMD")
         if command_template:
-            formatted = command_template.format(prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR))
+            formatted = command_template.format(
+                prompt_file=str(prompt_file),
+                run_dir=str(RUN_DIR),
+                chal_dir=str(CHAL_DIR),
+                reasoning_effort=reasoning_effort,
+            )
             return shlex.split(formatted), None, "custom-codex-command"
         command = [
             "codex",
@@ -221,6 +241,8 @@ def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str]
             str(RUN_DIR),
             "--output-last-message",
             str(RUN_DIR / "codex_last_message.txt"),
+            "-c",
+            f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         ]
         command.extend(_codex_mcp_overrides())
         command.append("-")

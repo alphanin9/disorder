@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ class RunBudgetOverrides(BaseModel):
 class RunCreateRequest(BaseModel):
     challenge_id: UUID
     backend: str = "mock"
+    reasoning_effort: Literal["low", "medium", "high", "xhigh"] = "medium"
     budgets: RunBudgetOverrides | None = None
     stop_criteria: dict | None = None
     local_deploy_enabled: bool = False
