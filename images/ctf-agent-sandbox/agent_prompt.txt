@@ -13,7 +13,7 @@ Challenge artifact inventory:
 Stop criteria:
 {stop_criteria}
 
-Allowed endpoints (strict allowlist):
+Known challenge/local endpoints:
 {allowed_endpoints}
 
 Tooling guidance:
@@ -31,7 +31,8 @@ Work only within mounted paths:
 Execution rules:
 - Prefer deterministic, scriptable steps and preserve evidence in README/result.
 - If you produce a solve script, ensure it is executable and documented.
-- Do not assume unrestricted network access; only use allowed endpoints.
+- Network egress is allowed for fetching tooling, references, and dependencies as needed.
+- Prioritize challenge/local endpoints for target interaction and avoid broad host scanning.
 - `result.json` must strictly include:
   `challenge_id`, `challenge_name`, `status`, `stop_criterion_met`, `flag` (optional),
   `flag_verification`, `deliverables`, `repro_steps`, `key_findings`, `evidence`, `notes`.

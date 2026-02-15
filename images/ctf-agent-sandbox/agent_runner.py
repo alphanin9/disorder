@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -269,25 +270,60 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         f"[agent-runner] executing backend command ({command_source}): {' '.join(command)}",
         flush=True,
     )
-    completed = subprocess.run(command, cwd=RUN_DIR, capture_output=True, text=True, input=stdin_input)
-    if completed.stdout:
-        print(completed.stdout, flush=True)
-    if completed.stderr:
-        print(completed.stderr, file=sys.stderr, flush=True)
+    process = subprocess.Popen(
+        command,
+        cwd=RUN_DIR,
+        stdin=subprocess.PIPE if stdin_input is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
 
-    if completed.returncode != 0:
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+
+    def _pump(stream, sink, printer) -> None:
+        if stream is None:
+            return
+        try:
+            for line in iter(stream.readline, ""):
+                sink.append(line)
+                print(line, end="", file=printer, flush=True)
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, sys.stdout), daemon=True)
+    stderr_thread = threading.Thread(target=_pump, args=(process.stderr, stderr_chunks, sys.stderr), daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+
+    if stdin_input is not None and process.stdin is not None:
+        process.stdin.write(stdin_input)
+        process.stdin.close()
+
+    returncode = process.wait()
+    stdout_thread.join(timeout=5)
+    stderr_thread.join(timeout=5)
+    stdout_text = "".join(stdout_chunks)
+    stderr_text = "".join(stderr_chunks)
+
+    if returncode != 0:
         message = _backend_failure_message(
             backend=backend,
-            returncode=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            returncode=returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
         )
         if not (RUN_DIR / "README.md").exists():
             _write_readme("# Blocked\n\n" + message + "\n")
         if not (RUN_DIR / "result.json").exists():
             _write_result(_blocked_result(spec, message))
 
-    return completed.returncode
+    return returncode
 
 
 def _backend_failure_message(backend: str, returncode: int, stdout: str, stderr: str) -> str:
