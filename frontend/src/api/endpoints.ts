@@ -5,6 +5,8 @@ import type {
   ChallengeListResponse,
   ChallengeManifest,
   ChallengeUpdateRequest,
+  CodexAuthFile,
+  CodexAuthStatusResponse,
   CTF,
   CTFCreateRequest,
   CTFListResponse,
@@ -98,4 +100,37 @@ export async function getRunLogs(runId: string, offset: number, limit = 65536): 
 
 export async function getRunResult(runId: string): Promise<RunResultPayload> {
   return apiRequest<RunResultPayload>(`/runs/${runId}/result`);
+}
+
+export async function getCodexAuthStatus(): Promise<CodexAuthStatusResponse> {
+  return apiRequest<CodexAuthStatusResponse>("/auth/codex/status");
+}
+
+export async function uploadCodexAuthFile(file: File, tag: string): Promise<CodexAuthFile> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("tag", tag);
+  return apiRequest<CodexAuthFile>("/auth/codex/files", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function setCodexAuthActiveTag(tag: string): Promise<CodexAuthStatusResponse> {
+  return apiRequest<CodexAuthStatusResponse>("/auth/codex/active-tag", {
+    method: "POST",
+    body: JSON.stringify({ tag }),
+  });
+}
+
+export async function deleteCodexAuthFile(fileId: string): Promise<CodexAuthStatusResponse> {
+  return apiRequest<CodexAuthStatusResponse>(`/auth/codex/files/${fileId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteCodexAuthTag(tag: string): Promise<CodexAuthStatusResponse> {
+  return apiRequest<CodexAuthStatusResponse>(`/auth/codex/tags/${encodeURIComponent(tag)}`, {
+    method: "DELETE",
+  });
 }

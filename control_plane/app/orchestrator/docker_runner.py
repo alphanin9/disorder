@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import threading
@@ -14,11 +15,13 @@ from uuid import UUID
 
 import docker
 from docker.errors import DockerException, ImageNotFound, NotFound
+from sqlalchemy.orm import Session
 
 from control_plane.app.core.config import get_settings
 from control_plane.app.db.models import ChallengeManifest, Run, RunResult
 from control_plane.app.db.session import SessionLocal
 from control_plane.app.schemas.result_contract import SandboxResult
+from control_plane.app.services.auth_service import CodexAuthMaterial, get_codex_auth_material_for_tag
 from control_plane.app.stop_criteria.engine import evaluate_stop_criteria
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import run_result_object_keys
@@ -48,6 +51,7 @@ class DockerRunner:
         run: Run | None = None
         container = None
         local_ctx: LocalDeployContext | None = None
+        run_dir: Path | None = None
 
         try:
             run_uuid = UUID(run_id)
@@ -108,7 +112,7 @@ class DockerRunner:
             host_run_dir = self.docker_bind_runs_dir / str(run.id)
             host_chal_dir = host_run_dir / "chal"
             host_run_mount = host_run_dir / "run"
-            auth_mount_volume = self._sandbox_auth_volumes(run_dir=run_dir, host_run_dir=host_run_dir)
+            auth_mount_volume = self._sandbox_auth_volumes(db=db, run_dir=run_dir, host_run_dir=host_run_dir)
 
             volumes = {
                 str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
@@ -235,6 +239,8 @@ class DockerRunner:
                     pass
             if local_ctx is not None:
                 self._stop_local_deploy(local_ctx=local_ctx, run_id=run_id)
+            if run_dir is not None:
+                self._cleanup_staged_auth(run_dir=run_dir)
             db.close()
 
     def _ensure_sandbox_image(self) -> None:
@@ -290,7 +296,16 @@ class DockerRunner:
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         return env
 
-    def _sandbox_auth_volumes(self, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
+    def _sandbox_auth_volumes(self, db: Session, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
+        staged_dir = run_dir / ".auth" / "codex"
+        staged_dir.mkdir(parents=True, exist_ok=True)
+
+        requested_tag = self.settings.sandbox_codex_auth_tag
+        _, auth_material = get_codex_auth_material_for_tag(db, requested_tag=requested_tag)
+        staged_from_store_count = self._stage_codex_auth_material(staged_dir=staged_dir, files=auth_material)
+        if staged_from_store_count > 0:
+            return {str(host_run_dir / ".auth" / "codex"): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+
         raw_path = self.settings.sandbox_codex_auth_path
         if raw_path is None or not str(raw_path).strip():
             return {}
@@ -302,12 +317,22 @@ class DockerRunner:
             host_path = self._resolve_host_mount_path(configured)
             return {str(host_path): {"bind": "/home/ctf/.codex", "mode": "ro"}}
 
-        staged_dir = run_dir / ".auth" / "codex"
-        staged_dir.mkdir(parents=True, exist_ok=True)
         copied_count = self._stage_codex_auth_files(source_dir=configured, staged_dir=staged_dir)
         if copied_count == 0:
             return {}
         return {str(host_run_dir / ".auth" / "codex"): {"bind": "/home/ctf/.codex", "mode": "ro"}}
+
+    def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
+        copied = 0
+        for file_entry in files:
+            safe_name = Path(file_entry.file_name.replace("\\", "/")).name
+            if not safe_name:
+                continue
+            target = staged_dir / safe_name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(file_entry.content)
+            copied += 1
+        return copied
 
     def _stage_codex_auth_files(self, source_dir: Path, staged_dir: Path) -> int:
         if not source_dir.exists() or not source_dir.is_dir():
@@ -331,6 +356,12 @@ class DockerRunner:
             copied += 1
 
         return copied
+
+    def _cleanup_staged_auth(self, run_dir: Path) -> None:
+        staged_root = run_dir / ".auth"
+        if not staged_root.exists():
+            return
+        shutil.rmtree(staged_root, ignore_errors=True)
 
     def _hydrate_challenge_artifacts(self, challenge: ChallengeManifest, target_dir: Path) -> None:
         for artifact in challenge.artifacts:

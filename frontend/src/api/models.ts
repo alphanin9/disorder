@@ -15,6 +15,27 @@ export type ChallengeCreateRequest = components["schemas"]["ChallengeCreateReque
 export type ChallengeUpdateRequest = components["schemas"]["ChallengeUpdateRequest"];
 export type ChallengeArtifact = components["schemas"]["ChallengeArtifactRead"];
 
+export type CodexAuthFile = {
+  id: string;
+  tag: string;
+  file_name: string;
+  sha256: string;
+  size_bytes: number;
+  uploaded_at: string;
+};
+
+export type CodexAuthTag = {
+  tag: string;
+  file_count: number;
+  files: CodexAuthFile[];
+};
+
+export type CodexAuthStatusResponse = {
+  configured: boolean;
+  active_tag: string | null;
+  tags: CodexAuthTag[];
+};
+
 export type RunResultPayload = {
   challenge_id: string;
   challenge_name: string;

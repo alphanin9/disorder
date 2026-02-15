@@ -8,6 +8,7 @@ import { createCtf, getCtfs, updateCtf } from "@/api/endpoints";
 import type { CTFCreateRequest, CTFUpdateRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CodexAuthCard } from "@/features/integrations/CodexAuthCard";
 
 const ctfFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -243,6 +244,7 @@ export function CTFsPage() {
             </form>
           </Card>
         ) : null}
+        <CodexAuthCard />
       </div>
     </div>
   );

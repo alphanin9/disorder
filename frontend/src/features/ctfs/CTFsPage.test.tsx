@@ -23,6 +23,13 @@ const server = setupServer(
       ],
     }),
   ),
+  http.get("http://localhost/api/auth/codex/status", () =>
+    HttpResponse.json({
+      configured: false,
+      active_tag: null,
+      tags: [],
+    }),
+  ),
 );
 
 beforeAll(() => server.listen());

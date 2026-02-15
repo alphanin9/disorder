@@ -41,10 +41,12 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Local deploy (`docker compose` inside challenge artifacts) requires Docker CLI availability in control-plane runtime.
 - For Codex backend runs, provide auth using either:
   - `OPENAI_API_KEY` (or `CODEX_API_KEY`) in control plane environment, or
+  - upload tagged auth files from the web UI (`CTFs` page) or API (`/auth/codex/*`), or
   - `SANDBOX_CODEX_AUTH_PATH` to mount persisted Codex auth into sandbox at `/home/ctf/.codex`.
 - Sandbox env passthrough is controlled by `SANDBOX_ENV_PASSTHROUGH`.
 - `SANDBOX_CODEX_AUTH_MODE=auth_only` (default) stages only auth/token files from `SANDBOX_CODEX_AUTH_PATH`.
 - Set `SANDBOX_CODEX_AUTH_MODE=direct` to mount the full configured Codex directory as-is.
+- Optional: set `CODEX_AUTH_ENCRYPTION_KEY` (Fernet key) for explicit auth-secret encryption key control.
 
 ## Tests
 - Unit tests: `python -m pytest -q tests/unit`

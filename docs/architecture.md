@@ -5,6 +5,7 @@
 - `frontend` (React + Vite): operator web console for challenge selection, run start, live logs, and result viewing.
 - `postgres`: source of truth for challenge manifests, run specs, run result metadata.
 - `minio`: object storage for challenge artifacts, run results, logs, deliverables.
+- `auth store` (in `integration_configs`): encrypted, tagged Codex auth files for browser upload + sandbox staging.
 - `sandbox` container (`ctf-agent-sandbox:latest`): executes one RunSpec with backend `mock|codex|claude_code`.
   - Includes baseline CTF tooling (`pwntools`, `gdb`, `binutils`, `strace`, `socat`, `z3-solver`, etc.) and Codex CLI.
 - `cli`: Typer client for sync/list/run/log/result workflows.
@@ -18,6 +19,7 @@
    - Run workspace is mounted read-write at `/workspace/run`.
    - Selected env vars and optional Codex auth mount are passed into sandbox.
    - Codex auth mount supports `auth_only` mode (default) to stage token/auth files only, or `direct` mode for full directory pass-through.
+   - If tagged auth files are uploaded via API/UI, orchestrator stages the active tag from encrypted store before host-path fallback.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.

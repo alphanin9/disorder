@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     sandbox_codex_auth_include: str = Field(
         default="auth.json,credentials.json,token.json,*auth*.json,*token*.json,*credential*.json,*session*.json"
     )
+    sandbox_codex_auth_tag: str | None = Field(default=None)
+    codex_auth_encryption_key: str | None = Field(default=None)
+    codex_auth_max_file_bytes: int = Field(default=262_144)
 
 
 @lru_cache

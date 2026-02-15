@@ -9,6 +9,13 @@
   - response: `{ "synced": <int>, "platform": "ctfd" }`
 - `GET /integrations/ctfd/config`
 
+## Auth
+- `GET /auth/codex/status`
+- `POST /auth/codex/files` (multipart form with `file` and `tag`)
+- `POST /auth/codex/active-tag` with body `{ "tag": "..." }`
+- `DELETE /auth/codex/files/{file_id}`
+- `DELETE /auth/codex/tags/{tag}`
+
 ## Challenges
 - `GET /challenges`
 - `GET /challenges/{challenge_id}`
