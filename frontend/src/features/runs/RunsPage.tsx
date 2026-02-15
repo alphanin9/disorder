@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
-import { deleteRun, getChallenges, getRuns } from "@/api/endpoints";
+import { deleteRun, getChallenges, getRuns, terminateRun } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -39,6 +39,14 @@ export function RunsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteRun,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["challenges"] });
+    },
+  });
+
+  const terminateMutation = useMutation({
+    mutationFn: terminateRun,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["challenges"] });
@@ -91,13 +99,29 @@ export function RunsPage() {
                       <Badge status={run.status}>{run.status}</Badge>
                     </td>
                     <td className="px-2 py-3 text-slate-600">{formatDateTime(run.started_at)}</td>
-                    <td className="px-2 py-3 text-right text-xs text-slate-500">Active run</td>
+                    <td className="px-2 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-warning hover:text-warning"
+                        disabled={terminateMutation.isPending}
+                        onClick={() => {
+                          if (!window.confirm(`Force terminate run ${run.id.slice(0, 8)}?`)) {
+                            return;
+                          }
+                          terminateMutation.mutate(run.id);
+                        }}
+                      >
+                        Force stop
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : null}
+        {terminateMutation.isError ? <p className="mt-3 text-sm text-danger">Failed to terminate run.</p> : null}
       </Card>
 
       <Card>
@@ -123,26 +147,44 @@ export function RunsPage() {
                 <div className="flex items-center gap-2">
                   <Badge status={run.status}>{run.status}</Badge>
                   <span className="text-xs text-slate-600">{formatDateTime(run.started_at)}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs text-danger hover:text-danger"
-                    disabled={deleteMutation.isPending || run.status === "queued" || run.status === "running"}
-                    onClick={() => {
-                      if (!window.confirm(`Delete run ${run.id.slice(0, 8)} and all archived data?`)) {
-                        return;
-                      }
-                      deleteMutation.mutate(run.id);
-                    }}
-                  >
-                    Delete
-                  </Button>
+                  {run.status === "queued" || run.status === "running" ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs text-warning hover:text-warning"
+                      disabled={terminateMutation.isPending}
+                      onClick={() => {
+                        if (!window.confirm(`Force terminate run ${run.id.slice(0, 8)}?`)) {
+                          return;
+                        }
+                        terminateMutation.mutate(run.id);
+                      }}
+                    >
+                      Force stop
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs text-danger hover:text-danger"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => {
+                        if (!window.confirm(`Delete run ${run.id.slice(0, 8)} and all archived data?`)) {
+                          return;
+                        }
+                        deleteMutation.mutate(run.id);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
         ) : null}
         {deleteMutation.isError ? <p className="mt-3 text-sm text-danger">Failed to delete run. Active runs cannot be deleted.</p> : null}
+        {terminateMutation.isError ? <p className="mt-3 text-sm text-danger">Failed to terminate run.</p> : null}
       </Card>
     </div>
   );

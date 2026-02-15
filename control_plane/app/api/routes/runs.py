@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -10,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from control_plane.app.core.config import get_settings
-from control_plane.app.db.models import RunResult
+from control_plane.app.db.models import ChallengeManifest, RunResult
 from control_plane.app.db.session import get_db
 from control_plane.app.orchestrator.docker_runner import DockerRunner
 from control_plane.app.schemas.run import (
@@ -24,6 +26,7 @@ from control_plane.app.schemas.run import (
 from control_plane.app.services.delete_service import delete_run
 from control_plane.app.services.run_service import create_run, get_run_or_none, list_runs
 from control_plane.app.store import get_blob_store
+from control_plane.app.store.minio import run_result_object_keys
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 settings = get_settings()
@@ -33,6 +36,39 @@ blob_store = get_blob_store()
 @lru_cache
 def get_orchestrator() -> DockerRunner:
     return DockerRunner()
+
+
+def _write_terminated_result_if_missing(run_id: UUID, challenge: ChallengeManifest, reason: str) -> tuple[Path, Path]:
+    run_dir = settings.runs_dir / str(run_id)
+    run_mount_dir = run_dir / "run"
+    log_dir = run_dir / "logs"
+    run_mount_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    result_path = run_mount_dir / "result.json"
+    if not result_path.exists():
+        payload = {
+            "challenge_id": str(challenge.id),
+            "challenge_name": challenge.name,
+            "status": "blocked",
+            "stop_criterion_met": "none",
+            "flag_verification": {"method": "none", "verified": False, "details": reason},
+            "deliverables": [],
+            "repro_steps": [],
+            "key_findings": [],
+            "evidence": [],
+            "notes": reason,
+        }
+        result_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    readme_path = run_mount_dir / "README.md"
+    if not readme_path.exists():
+        readme_path.write_text("# Run Terminated\n\nThis run was force-terminated by operator.\n", encoding="utf-8")
+
+    log_path = log_dir / "sandbox.log"
+    if not log_path.exists():
+        log_path.write_text("", encoding="utf-8")
+    return result_path, log_path
 
 
 @router.post("", response_model=RunRead)
@@ -181,3 +217,51 @@ def delete_run_route(run_id: UUID, db: Session = Depends(get_db)) -> Response:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)
+
+
+@router.post("/{run_id}/terminate", response_model=RunStatusResponse)
+def terminate_run_route(run_id: UUID, db: Session = Depends(get_db)) -> RunStatusResponse:
+    run = get_run_or_none(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    get_orchestrator().terminate_run(str(run_id))
+
+    if run.status in {"queued", "running"}:
+        challenge = db.get(ChallengeManifest, run.challenge_id)
+        if challenge is None:
+            raise HTTPException(status_code=404, detail="challenge not found")
+
+        reason = "Run force-terminated by operator"
+        run.status = "blocked"
+        run.error_message = reason
+        run.finished_at = datetime.now(timezone.utc)
+
+        result_path, log_path = _write_terminated_result_if_missing(run.id, challenge, reason)
+        result_key, logs_key = run_result_object_keys(str(run.id))
+        blob_store.put_file(result_key, result_path)
+        blob_store.put_file(logs_key, log_path)
+
+        result_row = db.get(RunResult, run.id)
+        if result_row is None:
+            result_row = RunResult(
+                run_id=run.id,
+                status="blocked",
+                result_json_object_key=result_key,
+                logs_object_key=logs_key,
+                started_at=run.started_at,
+                finished_at=run.finished_at,
+            )
+            db.add(result_row)
+        else:
+            result_row.status = "blocked"
+            result_row.result_json_object_key = result_key
+            result_row.logs_object_key = logs_key
+            result_row.finished_at = run.finished_at
+
+        db.commit()
+        db.refresh(run)
+
+    result = db.get(RunResult, run_id)
+    result_schema = RunResultRead.model_validate(result, from_attributes=True) if result else None
+    return RunStatusResponse(run=RunRead.model_validate(run, from_attributes=True), result=result_schema)

@@ -128,6 +128,12 @@ export async function deleteRun(runId: string): Promise<void> {
   });
 }
 
+export async function terminateRun(runId: string): Promise<RunStatusResponse> {
+  return apiRequest<RunStatusResponse>(`/runs/${runId}/terminate`, {
+    method: "POST",
+  });
+}
+
 export async function getCodexAuthStatus(): Promise<CodexAuthStatusResponse> {
   return apiRequest<CodexAuthStatusResponse>("/auth/codex/status");
 }

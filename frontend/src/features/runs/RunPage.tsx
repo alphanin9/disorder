@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
-import { getRun, getRunLogs, getRunResult } from "@/api/endpoints";
+import { getRun, getRunLogs, getRunResult, terminateRun } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -103,6 +103,7 @@ function renderParsedLogs(rawLogs: string): string {
 }
 
 export function RunPage() {
+  const queryClient = useQueryClient();
   const { runId } = useParams();
   const [rawLogs, setRawLogs] = useState("");
   const [offset, setOffset] = useState(0);
@@ -122,6 +123,17 @@ export function RunPage() {
   const status = runQuery.data?.run.status;
   const terminal = Boolean(status && isRunFinal(status));
   const useSse = !sseFailed && typeof EventSource !== "undefined";
+  const terminateMutation = useMutation({
+    mutationFn: terminateRun,
+    onSuccess: () => {
+      if (!runId) {
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: ["run", runId] });
+      void queryClient.invalidateQueries({ queryKey: ["run-result", runId] });
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
 
   useEffect(() => {
     if (!runId || !useSse) {
@@ -246,11 +258,30 @@ export function RunPage() {
             </Link>
             <h2 className="mt-2 text-xl font-bold">Run {runId}</h2>
           </div>
-          <Badge status={status}>{status ?? "loading"}</Badge>
+          <div className="flex items-center gap-2">
+            {status && !isRunFinal(status) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-3 text-xs text-warning hover:text-warning"
+                disabled={terminateMutation.isPending}
+                onClick={() => {
+                  if (!window.confirm(`Force terminate run ${runId.slice(0, 8)}?`)) {
+                    return;
+                  }
+                  terminateMutation.mutate(runId);
+                }}
+              >
+                Force stop
+              </Button>
+            ) : null}
+            <Badge status={status}>{status ?? "loading"}</Badge>
+          </div>
         </div>
 
         {runQuery.isLoading ? <p>Loading run state...</p> : null}
         {runQuery.error ? <p className="text-danger">Failed to load run state.</p> : null}
+        {terminateMutation.isError ? <p className="mb-2 text-sm text-danger">Failed to terminate run.</p> : null}
 
         <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           {details.map(([label, value]) => (

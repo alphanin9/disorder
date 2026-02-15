@@ -61,6 +61,8 @@ class DockerRunner:
             run = db.get(Run, run_uuid)
             if run is None:
                 return
+            if run.status not in {"queued", "running"}:
+                return
 
             challenge = db.get(ChallengeManifest, run.challenge_id)
             if challenge is None:
@@ -127,6 +129,7 @@ class DockerRunner:
                 self.settings.sandbox_image,
                 detach=True,
                 name=f"ctf-sandbox-{str(run.id)[:8]}",
+                labels={"ctf_harness.run_id": str(run.id)},
                 user="1000:1000",
                 mem_limit=self.settings.default_mem_limit,
                 nano_cpus=int(self.settings.default_cpu_limit * 1_000_000_000),
@@ -252,6 +255,50 @@ class DockerRunner:
             if run_dir is not None:
                 self._cleanup_staged_auth(run_dir=run_dir)
             db.close()
+
+    def terminate_run(self, run_id: str) -> dict[str, int]:
+        killed = 0
+        removed = 0
+
+        target_label = f"ctf_harness.run_id={run_id}"
+        containers = self.client.containers.list(all=True, filters={"label": target_label})
+        if not containers:
+            fallback_name = f"ctf-sandbox-{run_id[:8]}"
+            containers = self.client.containers.list(all=True, filters={"name": fallback_name})
+
+        for container in containers:
+            try:
+                container.kill()
+                killed += 1
+            except DockerException:
+                pass
+            try:
+                container.remove(force=True)
+                removed += 1
+            except DockerException:
+                pass
+
+        compose_project = f"ctfrun{run_id.replace('-', '')[:10]}"
+        chal_dir = self.settings.runs_dir / run_id / "chal"
+        if chal_dir.exists():
+            try:
+                subprocess.run(
+                    ["docker", "compose", "-p", compose_project, "down", "-v"],
+                    cwd=chal_dir,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception:
+                pass
+
+        network_name = f"ctf_run_{run_id.replace('-', '')[:12]}"
+        try:
+            self.client.networks.get(network_name).remove()
+        except DockerException:
+            pass
+
+        return {"killed": killed, "removed": removed}
 
     def _ensure_sandbox_image(self) -> None:
         try:
