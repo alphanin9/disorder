@@ -39,10 +39,6 @@ Execution rules:
 - Document any installed tooling and versions in `README.md` for reproducibility.
 - Network egress is allowed for fetching tooling, references, and dependencies as needed.
 - Prioritize challenge/local endpoints for target interaction and avoid broad host scanning.
-- You have MCP “power tools” available:
-  - `verify_flag_candidate` for regex-based flag validation (use for any candidate flag).
-  - `crypto_math` for sympy/Sage helpers (factorization, CRT, modular inverse, eval snippets).
-  - `ghidra` for headless reverse-engineering workflows (if invoked, it may download/setup Ghidra into `/workspace/run/tools`).
 - `result.json` must strictly include:
   `challenge_id`, `challenge_name`, `status`, `stop_criterion_met`, `flag` (optional),
   `flag_verification`, `deliverables`, `repro_steps`, `key_findings`, `evidence`, `notes`.

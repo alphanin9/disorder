@@ -12,20 +12,34 @@ DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 
 
 def _read_message() -> dict[str, Any] | None:
-    # MCP stdio transport uses JSON-RPC messages serialized as one JSON per line.
+    headers: dict[str, str] = {}
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
             return None
-        text = line.decode("utf-8", errors="replace").strip()
-        if not text:
+        if line in {b"\r\n", b"\n"}:
+            break
+        header_line = line.decode("utf-8", errors="replace").strip()
+        if not header_line or ":" not in header_line:
             continue
-        return json.loads(text)
+        name, value = header_line.split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+
+    length_raw = headers.get("content-length")
+    if not length_raw:
+        return None
+    length = int(length_raw)
+    body = sys.stdin.buffer.read(length)
+    if not body:
+        return None
+    return json.loads(body.decode("utf-8"))
 
 
 def _write_message(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(encoded)}\r\n\r\n".encode("ascii"))
+    sys.stdout.buffer.write(encoded)
+    sys.stdout.buffer.flush()
 
 
 def _extract_flag_regex(spec: dict[str, Any]) -> tuple[str | None, str | None]:

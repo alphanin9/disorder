@@ -125,17 +125,6 @@ class DockerRunner:
             }
             volumes.update(auth_mount_volume)
 
-            cap_add: list[str] | None = None
-            if self.settings.sandbox_ptrace_enabled:
-                cap_add = ["SYS_PTRACE"]
-
-            security_opt: list[str] | None = None
-            if self.settings.sandbox_seccomp_unconfined:
-                security_opt = ["seccomp=unconfined"]
-
-            ida_mount = self._sandbox_ida_volumes()
-            volumes.update(ida_mount)
-
             container = self.client.containers.run(
                 self.settings.sandbox_image,
                 detach=True,
@@ -148,8 +137,6 @@ class DockerRunner:
                 volumes=volumes,
                 network=local_ctx.network_name if local_ctx else None,
                 environment=self._sandbox_environment(),
-                cap_add=cap_add,
-                security_opt=security_opt,
             )
 
             log_thread = threading.Thread(target=self._stream_logs, args=(container, log_path), daemon=True)
@@ -326,17 +313,7 @@ class DockerRunner:
         ]
         for candidate in build_context_candidates:
             if candidate.exists():
-                buildargs = {
-                    "INSTALL_GHIDRA": "1" if self.settings.sandbox_build_install_ghidra else "0",
-                    "GHIDRA_VERSION": str(self.settings.sandbox_build_ghidra_version),
-                }
-                self.client.images.build(
-                    path=str(candidate),
-                    tag=self.settings.sandbox_image,
-                    rm=True,
-                    buildargs=buildargs,
-                    target=self.settings.sandbox_build_target,
-                )
+                self.client.images.build(path=str(candidate), tag=self.settings.sandbox_image, rm=True)
                 return
 
         raise FileNotFoundError("Sandbox image not found and build context is unavailable")
@@ -375,7 +352,6 @@ class DockerRunner:
 
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         env.setdefault("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
-        env.setdefault("SANDBOX_IDA_MCP_ENABLED", "true" if self.settings.sandbox_ida_mcp_enabled else "false")
         return env
 
     def _sandbox_auth_volumes(self, db: Session, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
@@ -388,17 +364,6 @@ class DockerRunner:
         if staged_from_store_count > 0:
             return {str(host_run_dir / ".auth" / "codex"): {"bind": "/workspace/run/.auth_seed/codex", "mode": "ro"}}
         return {}
-
-    def _sandbox_ida_volumes(self) -> dict[str, dict[str, str]]:
-        if not self.settings.sandbox_ida_mcp_enabled:
-            return {}
-        ida_path = self.settings.sandbox_ida_path
-        if ida_path is None:
-            return {}
-        ida_path = ida_path.expanduser().resolve()
-        if not ida_path.exists():
-            return {}
-        return {str(ida_path): {"bind": "/opt/ida", "mode": "ro"}}
 
     def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
         copied = 0
@@ -531,17 +496,6 @@ class DockerRunner:
         reasoning_effort = str(run.budgets.get("reasoning_effort") or "medium").lower()
         if reasoning_effort not in {"low", "medium", "high", "xhigh"}:
             reasoning_effort = "medium"
-
-        mcp_servers: list[str] = []
-        if os.getenv("CODEX_FLAG_VERIFY_MCP_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off", ""}:
-            mcp_servers.append("flag_verify")
-        if os.getenv("CODEX_CRYPTO_MCP_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off", ""}:
-            mcp_servers.append("crypto_math")
-        if os.getenv("CODEX_GHIDRA_MCP_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off", ""}:
-            mcp_servers.append("ghidra")
-        if self.settings.sandbox_ida_mcp_enabled:
-            mcp_servers.append("ida")
-
         return {
             "run_id": str(run.id),
             "challenge_id": str(run.challenge_id),
@@ -556,7 +510,6 @@ class DockerRunner:
             "allowed_endpoints": run.allowed_endpoints,
             "paths": run.paths,
             "local_deploy": run.local_deploy,
-            "mcp": {"enabled": True, "servers": mcp_servers},
         }
 
     def _stream_logs(self, container, log_path: Path) -> None:

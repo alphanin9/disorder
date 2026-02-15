@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,8 +33,7 @@ class Settings(BaseSettings):
         default=(
             "OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_ORG_ID,OPENAI_PROJECT_ID,"
             "CODEX_API_KEY,CODEX_BASE_URL,CODEX_MODEL,CODEX_CLI_CMD,"
-            "CODEX_JSONL_LIVE_LOG_ONLY,CODEX_FLAG_VERIFY_MCP_ENABLED,CODEX_CRYPTO_MCP_ENABLED,CODEX_GHIDRA_MCP_ENABLED,"
-            "SANDBOX_IDA_MCP_ENABLED,CODEX_IDA_MCP_ENABLED,GHIDRA_VERSION,GHIDRA_URL,GHIDRA_INSTALL_DIR,"
+            "CODEX_JSONL_LIVE_LOG_ONLY,CODEX_FLAG_VERIFY_MCP_ENABLED,"
             "ANTHROPIC_API_KEY,CLAUDE_CODE_CLI_CMD"
         )
     )
@@ -47,24 +46,6 @@ class Settings(BaseSettings):
     discord_webhook_url: str | None = Field(default=None)
     discord_notify_on_flag: bool = Field(default=True)
     discord_notify_include_flag: bool = Field(default=True)
-
-    sandbox_ptrace_enabled: bool = Field(default=True)
-    sandbox_seccomp_unconfined: bool = Field(default=False)
-    sandbox_ida_mcp_enabled: bool = Field(default=False)
-    sandbox_ida_path: Path | None = Field(default=None)
-
-    sandbox_build_install_ghidra: bool = Field(default=True)
-    sandbox_build_ghidra_version: str = Field(default="11.1.2")
-    sandbox_build_target: str = Field(default="full")
-
-    @field_validator("sandbox_ida_path", mode="before")
-    @classmethod
-    def _empty_ida_path_to_none(cls, value):  # type: ignore[no-untyped-def]
-        if value is None:
-            return None
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
 
 
 @lru_cache
