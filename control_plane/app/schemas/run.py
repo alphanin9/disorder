@@ -6,9 +6,15 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
+class RunBudgetOverrides(BaseModel):
+    max_minutes: int = Field(default=30, ge=1, le=24 * 60)
+    max_commands: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
 class RunCreateRequest(BaseModel):
     challenge_id: UUID
     backend: str = "mock"
+    budgets: RunBudgetOverrides | None = None
     stop_criteria: dict | None = None
     local_deploy_enabled: bool = False
 

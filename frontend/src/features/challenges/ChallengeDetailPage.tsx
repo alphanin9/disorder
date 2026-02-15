@@ -17,6 +17,16 @@ const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
   goal: z.enum(["flag", "deliverable"]),
   local_deploy_enabled: z.boolean().default(false),
+  max_minutes: z.coerce.number().int().min(1, "Must be at least 1 minute").max(24 * 60, "Must be <= 1440 minutes"),
+  max_commands: z.preprocess(
+    (value) => {
+      if (typeof value === "string" && value.trim() === "") {
+        return null;
+      }
+      return value;
+    },
+    z.coerce.number().int().min(1, "Must be >= 1 command").max(1_000_000, "Too large").nullable(),
+  ),
 });
 
 const editSchema = z.object({
@@ -136,6 +146,8 @@ export function ChallengeDetailPage() {
       backend: "mock",
       goal: "flag",
       local_deploy_enabled: false,
+      max_minutes: 30,
+      max_commands: null,
     },
   });
 
@@ -171,6 +183,10 @@ export function ChallengeDetailPage() {
       const payload: RunCreateRequest = {
         challenge_id: challengeId ?? "",
         backend: values.backend,
+        budgets: {
+          max_minutes: values.max_minutes,
+          max_commands: values.max_commands,
+        },
         stop_criteria: stopCriteria,
         local_deploy_enabled: values.local_deploy_enabled,
       };
@@ -388,6 +404,44 @@ export function ChallengeDetailPage() {
             <input type="checkbox" {...runForm.register("local_deploy_enabled")} />
             Enable local deploy (if compose file present)
           </label>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="max_minutes">
+              Max Runtime (minutes)
+            </label>
+            <input
+              id="max_minutes"
+              type="number"
+              min={1}
+              max={24 * 60}
+              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              {...runForm.register("max_minutes")}
+            />
+            {runForm.formState.errors.max_minutes ? (
+              <p className="mt-1 text-xs text-danger">{runForm.formState.errors.max_minutes.message}</p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-600">Hard timeout for the sandbox container.</p>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="max_commands">
+              Max Commands (optional)
+            </label>
+            <input
+              id="max_commands"
+              type="number"
+              min={1}
+              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              placeholder="Unlimited"
+              {...runForm.register("max_commands")}
+            />
+            {runForm.formState.errors.max_commands ? (
+              <p className="mt-1 text-xs text-danger">{runForm.formState.errors.max_commands.message}</p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-600">Leave blank for no command-count cap.</p>
+            )}
+          </div>
 
           {runMutation.isError ? <p className="text-sm text-danger">Failed to start run.</p> : null}
 

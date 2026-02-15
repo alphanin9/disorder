@@ -2,7 +2,13 @@ import type { components } from "@/api/types";
 
 export type ChallengeManifest = components["schemas"]["ChallengeManifestRead"];
 export type ChallengeListResponse = components["schemas"]["ChallengeListResponse"];
-export type RunCreateRequest = components["schemas"]["RunCreateRequest"];
+type BaseRunCreateRequest = components["schemas"]["RunCreateRequest"];
+export type RunCreateRequest = BaseRunCreateRequest & {
+  budgets?: {
+    max_minutes: number;
+    max_commands?: number | null;
+  } | null;
+};
 export type RunRead = components["schemas"]["RunRead"];
 export type RunListResponse = { items: RunRead[] };
 export type RunStatusResponse = components["schemas"]["RunStatusResponse"];

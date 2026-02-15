@@ -44,10 +44,17 @@ def create_run(db: Session, request: RunCreateRequest) -> Run:
 
     stop_criteria = merge_stop_criteria(build_default_stop_criteria(challenge), request.stop_criteria)
 
+    budgets = {"max_minutes": 30, "max_commands": None}
+    if request.budgets is not None:
+        budgets = {
+            "max_minutes": int(request.budgets.max_minutes),
+            "max_commands": int(request.budgets.max_commands) if request.budgets.max_commands is not None else None,
+        }
+
     run = Run(
         challenge_id=challenge.id,
         backend=request.backend,
-        budgets={"max_minutes": 30, "max_commands": None},
+        budgets=budgets,
         stop_criteria=stop_criteria,
         allowed_endpoints=challenge.remote_endpoints,
         paths={"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"},

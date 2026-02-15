@@ -444,6 +444,13 @@ export interface components {
              * @default mock
              */
             backend: string;
+            /** Budgets */
+            budgets?: {
+                /** Max Minutes */
+                max_minutes?: number;
+                /** Max Commands */
+                max_commands?: number | null;
+            } | null;
             /**
              * Challenge Id
              * Format: uuid
