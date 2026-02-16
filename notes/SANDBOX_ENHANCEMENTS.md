@@ -66,7 +66,8 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 - Start `idalib-mcp` from sandbox runtime (`agent_runner.py`) using:
   - `uv run idalib-mcp`
 - Ensure required Python package is present in sandbox:
-  - `pip install idapro` (plus `ida-pro-mcp`)
+  - `pip install idapro`
+  - install `ida-pro-mcp` from `https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip` (not PyPI)
 - Expected MCP endpoint:
   - `http://127.0.0.1:8745/mcp` (configurable port)
 - Process lifecycle:
@@ -80,6 +81,11 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
   - `SANDBOX_IDA_HOST_PATH`
 - Docker runner mounts it read-only into sandbox (default mount target `/opt/ida`).
 - Sandbox must export `IDADIR` to the mounted IDA path for IDA MCP runtime.
+- Sandbox runtime auto-accepts configured EULA keys before starting IDA MCP:
+  - default `SANDBOX_IDA_ACCEPT_EULA=true`
+  - default `SANDBOX_IDA_EULA_VERSIONS=90,91,92`
+- Optional persistence across runs:
+  - mount host path to `/home/ctf/.idapro` via `SANDBOX_IDA_REGISTRY_HOST_PATH`
 
 ### B3. Conditional enablement (fail-closed)
 - If `SANDBOX_IDA_HOST_PATH` is unset/empty:
@@ -106,6 +112,9 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 - Add env-driven settings in `control_plane/app/core/config.py`:
   - `SANDBOX_IDA_HOST_PATH` (optional, default empty)
   - `SANDBOX_IDA_MOUNT_PATH` (default `/opt/ida`)
+  - `SANDBOX_IDA_REGISTRY_HOST_PATH` (optional, for persistent `/home/ctf/.idapro`)
+  - `SANDBOX_IDA_ACCEPT_EULA` (default `true`)
+  - `SANDBOX_IDA_EULA_VERSIONS` (default `90,91,92`)
   - `SANDBOX_IDALIB_MCP_PORT` (default `8745`)
 
 ### C2. Orchestrator behavior

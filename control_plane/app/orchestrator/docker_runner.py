@@ -323,15 +323,33 @@ class DockerRunner:
         raise FileNotFoundError("Sandbox image not found and build context is unavailable")
 
     def _resolve_host_mount_path(self, configured_path: Path) -> Path:
-        configured = configured_path.resolve()
-        target = str(configured_path)
-        if os.name == "nt":
-            target = target.replace("\\", "/")
+        target_raw = str(configured_path)
+        target = target_raw.replace("\\", "/") if os.name == "nt" else target_raw
+        mounts: list[dict[str, Any]] = []
 
         try:
             container_id = socket.gethostname()
             me = self.client.containers.get(container_id)
-            for mount in me.attrs.get("Mounts", []):
+            mounts = me.attrs.get("Mounts", [])
+        except Exception:
+            mounts = []
+
+        # Docker Desktop on Windows + Linux control-plane container:
+        # allow users to pass `G:\...` style host paths and translate them
+        # into a Linux daemon-visible path (`/run/desktop/mnt/host/g/...`).
+        if os.name != "nt":
+            translated = self._translate_windows_host_path_for_daemon(target_raw=target_raw, mounts=mounts)
+            if translated:
+                target = translated
+                print(
+                    f"[orchestrator] translated Windows host path '{target_raw}' to '{target}' for Docker daemon",
+                    flush=True,
+                )
+
+        configured = Path(target).resolve()
+
+        try:
+            for mount in mounts:
                 destination = str(mount.get("Destination", ""))
                 destination_normalized = destination.rstrip("/")
                 target_normalized = target.rstrip("/")
@@ -345,6 +363,32 @@ class DockerRunner:
             pass
 
         return configured
+
+    def _translate_windows_host_path_for_daemon(self, target_raw: str, mounts: list[dict[str, Any]]) -> str | None:
+        windows_path = re.match(r"^(?P<drive>[A-Za-z]):[\\/](?P<rest>.*)$", target_raw)
+        if not windows_path:
+            return None
+
+        drive = windows_path.group("drive").lower()
+        rest = windows_path.group("rest").replace("\\", "/").lstrip("/")
+
+        prefix: str | None = None
+        for mount in mounts:
+            source = str(mount.get("Source", "")).replace("\\", "/")
+            match = re.match(r"^(?P<prefix>/(?:run/desktop/mnt/host|host_mnt))/(?P<drive>[A-Za-z])(?:/|$)", source)
+            if match and match.group("drive").lower() == drive:
+                prefix = match.group("prefix")
+                break
+
+        if prefix is None:
+            prefix = os.getenv("DOCKER_DESKTOP_HOST_MOUNT_PREFIX", "/run/desktop/mnt/host").strip()
+            if not prefix:
+                prefix = "/run/desktop/mnt/host"
+
+        translated = f"{prefix}/{drive}"
+        if rest:
+            translated = f"{translated}/{rest}"
+        return translated
 
     def _sandbox_environment(self) -> dict[str, str]:
         env = {"PYTHONUNBUFFERED": "1", "HOME": "/home/ctf"}
@@ -373,11 +417,19 @@ class DockerRunner:
             "SANDBOX_IDA_ENABLED": "1",
             "SANDBOX_IDA_INSTALL_PATH": mount_path,
             "SANDBOX_IDALIB_MCP_PORT": str(port),
+            "SANDBOX_IDA_ACCEPT_EULA": "1" if self.settings.sandbox_ida_accept_eula else "0",
+            "SANDBOX_IDA_EULA_VERSIONS": self.settings.sandbox_ida_eula_versions,
             "IDADIR": mount_path,
             "IDA_PATH": mount_path,
             "IDA_DIR": mount_path,
         }
-        volume = {str(resolved): {"bind": mount_path, "mode": "ro"}}
+        volume: dict[str, dict[str, str]] = {str(resolved): {"bind": mount_path, "mode": "ro"}}
+
+        registry_host_path = (self.settings.sandbox_ida_registry_host_path or "").strip()
+        if registry_host_path:
+            registry_resolved = self._resolve_host_mount_path(Path(registry_host_path))
+            volume[str(registry_resolved)] = {"bind": "/home/ctf/.idapro", "mode": "rw"}
+
         return volume, env
 
     def _sandbox_auth_volumes(self, db: Session, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:

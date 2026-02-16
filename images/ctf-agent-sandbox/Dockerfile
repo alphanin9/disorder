@@ -33,7 +33,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-    ida-pro-mcp \
+    https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip \
     idapro \
     libdebug \
     pwntools \

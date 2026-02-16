@@ -237,6 +237,36 @@ def _stop_background_process(process: subprocess.Popen[str] | None, name: str) -
             pass
 
 
+def _accept_ida_eula(ida_install_path: str) -> bool:
+    if not _env_truthy("SANDBOX_IDA_ACCEPT_EULA", default=True):
+        print("[agent-runner] IDA EULA acceptance disabled by SANDBOX_IDA_ACCEPT_EULA=0", flush=True)
+        return True
+
+    os.environ["IDADIR"] = ida_install_path
+    try:
+        import idapro  # noqa: F401
+        import ida_registry  # type: ignore
+    except Exception as exc:
+        print(f"[agent-runner] IDA EULA acceptance failed: idapro/ida_registry unavailable ({exc})", flush=True)
+        return False
+
+    raw_versions = os.getenv("SANDBOX_IDA_EULA_VERSIONS", "90,91,92")
+    versions = [token.strip() for token in raw_versions.split(",") if token.strip()]
+    if not versions:
+        versions = ["90", "91", "92"]
+
+    for version in versions:
+        key = f"EULA {version}"
+        try:
+            ida_registry.reg_write_int(key, 1)
+        except Exception as exc:
+            print(f"[agent-runner] IDA EULA acceptance failed writing '{key}': {exc}", flush=True)
+            return False
+
+    print(f"[agent-runner] IDA EULA accepted for versions: {', '.join(versions)}", flush=True)
+    return True
+
+
 def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, list[str]]:
     if not _env_truthy("SANDBOX_IDA_ENABLED", default=False):
         print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True)
@@ -249,6 +279,10 @@ def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, list
 
     if not Path(ida_install_path).exists():
         print(f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}", flush=True)
+        return None, []
+
+    if not _accept_ida_eula(ida_install_path):
+        print("[agent-runner] IDA MCP disabled: unable to accept IDA EULA", flush=True)
         return None, []
 
     command_template = os.getenv("SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp")

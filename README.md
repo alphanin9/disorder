@@ -49,7 +49,9 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Optional IDA MCP support for reverse engineering:
   - Set `SANDBOX_IDA_HOST_PATH` to a Linux IDA installation path visible to the Docker daemon.
   - Optionally set `SANDBOX_IDA_MOUNT_PATH` (default `/opt/ida`) and `SANDBOX_IDALIB_MCP_PORT` (default `8745`).
-  - Sandbox image includes required Python packages: `ida-pro-mcp` and `idapro`.
+  - Optional persistence for accepted EULA/registry state: set `SANDBOX_IDA_REGISTRY_HOST_PATH` to mount `/home/ctf/.idapro` read-write.
+  - EULA acceptance is handled automatically when IDA is enabled (`SANDBOX_IDA_ACCEPT_EULA=true` by default); version keys are configurable via `SANDBOX_IDA_EULA_VERSIONS`.
+  - Sandbox image installs `ida-pro-mcp` from `https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip` plus `idapro`.
   - When enabled, sandbox exports `IDADIR` to the mounted IDA path.
   - If `SANDBOX_IDA_HOST_PATH` is empty, IDA MCP is not exposed to the sandbox agent.
   - When enabled, sandbox startup launches `uv run idalib-mcp` and registers it with Codex MCP as an HTTP server.

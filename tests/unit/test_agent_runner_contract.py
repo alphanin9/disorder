@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def _load_agent_runner_module():
@@ -95,6 +98,32 @@ def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> 
     process, overrides = module._start_idalib_mcp_if_available()
     assert process is None
     assert overrides == []
+
+
+def test_accept_ida_eula_disabled_by_env(monkeypatch) -> None:
+    module = _load_agent_runner_module()
+    monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "0")
+    monkeypatch.delenv("IDADIR", raising=False)
+
+    accepted = module._accept_ida_eula("/opt/ida")
+    assert accepted is True
+    assert "IDADIR" not in os.environ
+
+
+def test_accept_ida_eula_writes_expected_registry_keys(monkeypatch) -> None:
+    module = _load_agent_runner_module()
+    calls: list[tuple[str, int]] = []
+    fake_registry = SimpleNamespace(reg_write_int=lambda key, value: calls.append((key, value)))
+
+    monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "1")
+    monkeypatch.setenv("SANDBOX_IDA_EULA_VERSIONS", "90,91,92")
+    monkeypatch.setitem(sys.modules, "idapro", object())
+    monkeypatch.setitem(sys.modules, "ida_registry", fake_registry)
+
+    accepted = module._accept_ida_eula("/opt/ida")
+    assert accepted is True
+    assert os.environ.get("IDADIR") == "/opt/ida"
+    assert calls == [("EULA 90", 1), ("EULA 91", 1), ("EULA 92", 1)]
 
 
 def test_seed_writable_codex_home_copies_auth_seed(monkeypatch, tmp_path) -> None:
