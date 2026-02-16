@@ -74,7 +74,9 @@ def test_smoke_mock_run() -> None:
         run = start.json()
         run_id = run["id"]
 
-        deadline = time.time() + 300
+        # Note: this has to be continously raised due to the agent sandbox container growing larger and larger
+        # 16/02/2026 - container is 4.7GB when built
+        deadline = time.time() + 1200
         final_status = None
         while time.time() < deadline:
             status_resp = client.get(f"{api_url}/runs/{run_id}")
