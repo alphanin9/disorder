@@ -33,10 +33,13 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
+    ida-pro-mcp \
+    idapro \
     libdebug \
     pwntools \
     pycryptodome \
     ropper \
+    uv \
     z3-solver && \
     npm install -g @openai/codex
 

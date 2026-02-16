@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
-import { getRun, getRunLogs, getRunResult, terminateRun } from "@/api/endpoints";
+import { getChallenge, getRun, getRunLogs, getRunResult, terminateRun } from "@/api/endpoints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -232,18 +232,26 @@ export function RunPage() {
   });
 
   const runMeta = runQuery.data?.run;
+  const challengeQuery = useQuery({
+    queryKey: ["challenge", runMeta?.challenge_id],
+    queryFn: () => getChallenge(runMeta?.challenge_id ?? ""),
+    enabled: Boolean(runMeta?.challenge_id),
+  });
   const parsedLogs = useMemo(() => renderParsedLogs(rawLogs), [rawLogs]);
   const logsToRender = logMode === "parsed" ? parsedLogs : rawLogs;
+  const challengeName = challengeQuery.data?.name ?? resultQuery.data?.challenge_name;
+  const ctfName = challengeQuery.data?.ctf_name;
+  const challengeDisplay = [challengeName, ctfName].filter((value): value is string => Boolean(value)).join(" / ");
   const details = useMemo(
     () => [
-      ["Run ID", runMeta?.id ?? "-"],
+      ["Challenge / CTF", challengeDisplay || runMeta?.challenge_id || "-"],
       ["Backend", runMeta?.backend ?? "-"],
       ["Reasoning", String((runMeta?.budgets as Record<string, unknown> | undefined)?.reasoning_effort ?? "medium")],
       ["Budget (minutes)", String((runMeta?.budgets as Record<string, unknown> | undefined)?.max_minutes ?? 30)],
       ["Started", formatDateTime(runMeta?.started_at)],
       ["Finished", formatDateTime(runMeta?.finished_at)],
     ],
-    [runMeta],
+    [challengeDisplay, runMeta],
   );
 
   if (!runId) {

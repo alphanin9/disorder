@@ -5,9 +5,11 @@ import json
 import os
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -191,7 +193,113 @@ def _codex_auth_source() -> str | None:
     return None
 
 
-def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str], str | None, str]:
+def _parse_port_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    if parsed <= 0:
+        return default
+    return parsed
+
+
+def _idalib_mcp_url(port: int) -> str:
+    return os.getenv("SANDBOX_IDALIB_MCP_URL", f"http://127.0.0.1:{port}/mcp")
+
+
+def _wait_for_port_listen(host: str, port: int, timeout_seconds: float, process: subprocess.Popen[str]) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.2)
+    return False
+
+
+def _stop_background_process(process: subprocess.Popen[str] | None, name: str) -> None:
+    if process is None or process.poll() is not None:
+        return
+    print(f"[agent-runner] stopping {name}", flush=True)
+    try:
+        process.terminate()
+        process.wait(timeout=5)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, list[str]]:
+    if not _env_truthy("SANDBOX_IDA_ENABLED", default=False):
+        print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True)
+        return None, []
+
+    ida_install_path = os.getenv("SANDBOX_IDA_INSTALL_PATH", "").strip() or os.getenv("IDADIR", "").strip()
+    if not ida_install_path:
+        print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_INSTALL_PATH is not set", flush=True)
+        return None, []
+
+    if not Path(ida_install_path).exists():
+        print(f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}", flush=True)
+        return None, []
+
+    command_template = os.getenv("SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp")
+    command = shlex.split(command_template)
+    if not command:
+        print("[agent-runner] IDA MCP disabled: SANDBOX_IDALIB_MCP_COMMAND is empty", flush=True)
+        return None, []
+
+    if shutil.which(command[0]) is None:
+        print(f"[agent-runner] IDA MCP disabled: command not found: {command[0]}", flush=True)
+        return None, []
+
+    port = _parse_port_env("SANDBOX_IDALIB_MCP_PORT", 8745)
+    timeout_seconds = float(os.getenv("SANDBOX_IDALIB_MCP_STARTUP_TIMEOUT", "15"))
+    if timeout_seconds <= 0:
+        timeout_seconds = 15.0
+
+    process_env = os.environ.copy()
+    for env_name in (
+        "IDADIR",
+        "IDA_PATH",
+        "IDA_DIR",
+        "IDA_INSTALL_PATH",
+        "IDA_INSTALL_DIR",
+        "IDALIB_IDA_PATH",
+        "IDALIB_IDA_DIR",
+    ):
+        process_env.setdefault(env_name, ida_install_path)
+
+    print(f"[agent-runner] starting idalib MCP: {' '.join(command)}", flush=True)
+    process = subprocess.Popen(
+        command,
+        cwd=RUN_DIR,
+        env=process_env,
+    )
+    if not _wait_for_port_listen("127.0.0.1", port, timeout_seconds=timeout_seconds, process=process):
+        print("[agent-runner] IDA MCP failed to become ready; disabling for this run", flush=True)
+        _stop_background_process(process, "idalib-mcp")
+        return None, []
+
+    url = _idalib_mcp_url(port)
+    overrides = ["-c", f"mcp_servers.ida_pro.url={json.dumps(url)}"]
+    print(f"[agent-runner] IDA MCP enabled at {url}", flush=True)
+    return process, overrides
+
+
+def _resolve_backend_command(
+    backend: str,
+    prompt_file: Path,
+    additional_mcp_overrides: list[str] | None = None,
+) -> tuple[list[str], str | None, str]:
     reasoning_effort = "medium"
     if SPEC_PATH.exists():
         try:
@@ -207,19 +315,24 @@ def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str]
             reasoning_effort = "medium"
 
     def _codex_mcp_overrides() -> list[str]:
-        if not _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
-            return []
+        overrides: list[str] = []
+        if _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
+            server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
+            mcp_script = os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py")
+            mcp_args = json.dumps([mcp_script, "--spec", str(SPEC_PATH)])
+            command_value = json.dumps(server_command)
+            overrides.extend(
+                [
+                    "-c",
+                    f"mcp_servers.flag_verify.command={command_value}",
+                    "-c",
+                    f"mcp_servers.flag_verify.args={mcp_args}",
+                ]
+            )
 
-        server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
-        mcp_script = os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py")
-        mcp_args = json.dumps([mcp_script, "--spec", str(SPEC_PATH)])
-        command_value = json.dumps(server_command)
-        return [
-            "-c",
-            f"mcp_servers.flag_verify.command={command_value}",
-            "-c",
-            f"mcp_servers.flag_verify.args={mcp_args}",
-        ]
+        if additional_mcp_overrides:
+            overrides.extend(additional_mcp_overrides)
+        return overrides
 
     if backend == "codex":
         command_template = os.getenv("CODEX_CLI_CMD")
@@ -256,6 +369,8 @@ def _resolve_backend_command(backend: str, prompt_file: Path) -> tuple[list[str]
 
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
+    idalib_process: subprocess.Popen[str] | None = None
+    mcp_overrides: list[str] = []
     if backend == "codex":
         auth_source = _codex_auth_source()
         if auth_source is None:
@@ -266,6 +381,7 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             _write_readme("# Blocked\n\n" + message + "\n")
             _write_result(_blocked_result(spec, message))
             return 2
+        idalib_process, mcp_overrides = _start_idalib_mcp_if_available()
 
     if backend == "codex":
         backend_name = "Codex CLI"
@@ -275,7 +391,11 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     prompt_file = RUN_DIR / "agent_prompt_filled.txt"
     prompt_file.write_text(prompt, encoding="utf-8")
 
-    command, stdin_input, command_source = _resolve_backend_command(backend=backend, prompt_file=prompt_file)
+    command, stdin_input, command_source = _resolve_backend_command(
+        backend=backend,
+        prompt_file=prompt_file,
+        additional_mcp_overrides=mcp_overrides,
+    )
     if not command:
         error = (
             f"{backend_name} command is not configured. Set "
@@ -284,80 +404,85 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         )
         _write_readme("# Blocked\n\n" + error + "\n")
         _write_result(_blocked_result(spec, error))
+        _stop_background_process(idalib_process, "idalib-mcp")
         return 2
 
     if shutil.which(command[0]) is None:
         _write_readme("# Blocked\n\nConfigured backend binary not found.\n")
         _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}"))
+        _stop_background_process(idalib_process, "idalib-mcp")
         return 2
 
     print(
         f"[agent-runner] executing backend command ({command_source}): {' '.join(command)}",
         flush=True,
     )
-    process = subprocess.Popen(
-        command,
-        cwd=RUN_DIR,
-        stdin=subprocess.PIPE if stdin_input is not None else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
-
-    stdout_chunks: list[str] = []
-    stderr_chunks: list[str] = []
-    stream_stderr_live = not (backend == "codex" and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True))
-
-    def _pump(stream, sink, printer, live: bool) -> None:
-        if stream is None:
-            return
-        try:
-            for line in iter(stream.readline, ""):
-                sink.append(line)
-                if live:
-                    print(line, end="", file=printer, flush=True)
-        finally:
-            try:
-                stream.close()
-            except Exception:
-                pass
-
-    stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, sys.stdout, True), daemon=True)
-    stderr_thread = threading.Thread(
-        target=_pump,
-        args=(process.stderr, stderr_chunks, sys.stderr, stream_stderr_live),
-        daemon=True,
-    )
-    stdout_thread.start()
-    stderr_thread.start()
-
-    if stdin_input is not None and process.stdin is not None:
-        process.stdin.write(stdin_input)
-        process.stdin.close()
-
-    returncode = process.wait()
-    stdout_thread.join(timeout=5)
-    stderr_thread.join(timeout=5)
-    stdout_text = "".join(stdout_chunks)
-    stderr_text = "".join(stderr_chunks)
-
-    if returncode != 0:
-        if stderr_text and not stream_stderr_live:
-            print("[agent-runner] codex stderr tail:", file=sys.stderr, flush=True)
-            print(stderr_text[-8192:], file=sys.stderr, flush=True)
-        message = _backend_failure_message(
-            backend=backend,
-            returncode=returncode,
-            stdout=stdout_text,
-            stderr=stderr_text,
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=RUN_DIR,
+            stdin=subprocess.PIPE if stdin_input is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
         )
-        if not (RUN_DIR / "README.md").exists():
-            _write_readme("# Blocked\n\n" + message + "\n")
-        if not (RUN_DIR / "result.json").exists():
-            _write_result(_blocked_result(spec, message))
 
-    return returncode
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        stream_stderr_live = not (backend == "codex" and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True))
+
+        def _pump(stream, sink, printer, live: bool) -> None:
+            if stream is None:
+                return
+            try:
+                for line in iter(stream.readline, ""):
+                    sink.append(line)
+                    if live:
+                        print(line, end="", file=printer, flush=True)
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, sys.stdout, True), daemon=True)
+        stderr_thread = threading.Thread(
+            target=_pump,
+            args=(process.stderr, stderr_chunks, sys.stderr, stream_stderr_live),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        if stdin_input is not None and process.stdin is not None:
+            process.stdin.write(stdin_input)
+            process.stdin.close()
+
+        returncode = process.wait()
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
+        stdout_text = "".join(stdout_chunks)
+        stderr_text = "".join(stderr_chunks)
+
+        if returncode != 0:
+            if stderr_text and not stream_stderr_live:
+                print("[agent-runner] codex stderr tail:", file=sys.stderr, flush=True)
+                print(stderr_text[-8192:], file=sys.stderr, flush=True)
+            message = _backend_failure_message(
+                backend=backend,
+                returncode=returncode,
+                stdout=stdout_text,
+                stderr=stderr_text,
+            )
+            if not (RUN_DIR / "README.md").exists():
+                _write_readme("# Blocked\n\n" + message + "\n")
+            if not (RUN_DIR / "result.json").exists():
+                _write_result(_blocked_result(spec, message))
+
+        return returncode
+    finally:
+        _stop_background_process(idalib_process, "idalib-mcp")
 
 
 def _backend_failure_message(backend: str, returncode: int, stdout: str, stderr: str) -> str:

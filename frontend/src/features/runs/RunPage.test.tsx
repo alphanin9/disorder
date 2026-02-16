@@ -43,6 +43,25 @@ const server = setupServer(
       notes: "ok",
     }),
   ),
+  http.get("http://localhost/api/challenges/:challenge_id", ({ params }) =>
+    HttpResponse.json({
+      id: params.challenge_id,
+      ctf_id: "11111111-1111-1111-1111-111111111111",
+      ctf_name: "Demo CTF",
+      name: "Warmup",
+      category: "misc",
+      points: 50,
+      description_md: "Demo",
+      description_raw: null,
+      flag_regex: null,
+      platform: "manual",
+      platform_challenge_id: "warmup-1",
+      local_deploy_hints: {},
+      remote_endpoints: [],
+      artifacts: [],
+      synced_at: "2026-02-14T22:00:00Z",
+    }),
+  ),
 );
 
 beforeAll(() => server.listen());
@@ -70,8 +89,10 @@ describe("RunPage", () => {
     );
 
     expect(await screen.findByText(/Run 7d2d5201/i)).toBeInTheDocument();
+    expect(await screen.findByText("Challenge / CTF")).toBeInTheDocument();
+    expect(await screen.findByText("Warmup / Demo CTF")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/deliverable_produced/i)).toBeInTheDocument();
+      expect(screen.getByText("secondary")).toBeInTheDocument();
     });
   });
 });

@@ -20,6 +20,7 @@
    - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
    - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only as seed material; sandbox startup copies it into writable `CODEX_HOME`.
    - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
+   - If `SANDBOX_IDA_HOST_PATH` is configured, orchestrator mounts IDA read-only, exports `IDADIR`, and sandbox startup launches `uv run idalib-mcp`, then registers it as an HTTP MCP server for Codex.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.

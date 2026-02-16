@@ -75,6 +75,28 @@ def test_codex_command_can_disable_flag_verify_mcp(monkeypatch, tmp_path) -> Non
     assert "mcp_servers.flag_verify.args" not in joined
 
 
+def test_codex_command_includes_additional_mcp_overrides(tmp_path) -> None:
+    module = _load_agent_runner_module()
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("test", encoding="utf-8")
+
+    extra = ["-c", 'mcp_servers.ida_pro.url="http://127.0.0.1:8745/mcp"']
+    command, _, _ = module._resolve_backend_command("codex", prompt_file, additional_mcp_overrides=extra)
+    joined = " ".join(command)
+    assert "mcp_servers.ida_pro.url" in joined
+
+
+def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> None:
+    module = _load_agent_runner_module()
+    monkeypatch.delenv("SANDBOX_IDA_ENABLED", raising=False)
+    monkeypatch.delenv("SANDBOX_IDA_INSTALL_PATH", raising=False)
+    monkeypatch.delenv("IDADIR", raising=False)
+
+    process, overrides = module._start_idalib_mcp_if_available()
+    assert process is None
+    assert overrides == []
+
+
 def test_seed_writable_codex_home_copies_auth_seed(monkeypatch, tmp_path) -> None:
     module = _load_agent_runner_module()
     seed_dir = tmp_path / "seed"

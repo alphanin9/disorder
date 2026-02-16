@@ -118,12 +118,16 @@ class DockerRunner:
             host_chal_dir = host_run_dir / "chal"
             host_run_mount = host_run_dir / "run"
             auth_mount_volume = self._sandbox_auth_volumes(db=db, run_dir=run_dir, host_run_dir=host_run_dir)
+            ida_mount_volume, ida_env = self._sandbox_ida_mount_and_env()
 
             volumes = {
                 str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
                 str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
             }
             volumes.update(auth_mount_volume)
+            volumes.update(ida_mount_volume)
+            sandbox_env = self._sandbox_environment()
+            sandbox_env.update(ida_env)
 
             container = self.client.containers.run(
                 self.settings.sandbox_image,
@@ -136,7 +140,7 @@ class DockerRunner:
                 pids_limit=self.settings.default_pids_limit,
                 volumes=volumes,
                 network=local_ctx.network_name if local_ctx else None,
-                environment=self._sandbox_environment(),
+                environment=sandbox_env,
             )
 
             log_thread = threading.Thread(target=self._stream_logs, args=(container, log_path), daemon=True)
@@ -353,6 +357,28 @@ class DockerRunner:
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         env.setdefault("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
         return env
+
+    def _sandbox_ida_mount_and_env(self) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
+        host_path = (self.settings.sandbox_ida_host_path or "").strip()
+        if not host_path:
+            return {}, {"SANDBOX_IDA_ENABLED": "0"}
+
+        mount_path = (self.settings.sandbox_ida_mount_path or "/opt/ida").strip() or "/opt/ida"
+        port = self.settings.sandbox_idalib_mcp_port
+        if port <= 0:
+            port = 8745
+
+        resolved = self._resolve_host_mount_path(Path(host_path))
+        env = {
+            "SANDBOX_IDA_ENABLED": "1",
+            "SANDBOX_IDA_INSTALL_PATH": mount_path,
+            "SANDBOX_IDALIB_MCP_PORT": str(port),
+            "IDADIR": mount_path,
+            "IDA_PATH": mount_path,
+            "IDA_DIR": mount_path,
+        }
+        volume = {str(resolved): {"bind": mount_path, "mode": "ro"}}
+        return volume, env
 
     def _sandbox_auth_volumes(self, db: Session, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
         staged_dir = run_dir / ".auth" / "codex"

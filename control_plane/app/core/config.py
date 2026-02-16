@@ -41,6 +41,9 @@ class Settings(BaseSettings):
         default="auth.json,credentials.json,token.json,*auth*.json,*token*.json,*credential*.json,*session*.json"
     )
     sandbox_codex_auth_tag: str | None = Field(default=None)
+    sandbox_ida_host_path: str | None = Field(default=None)
+    sandbox_ida_mount_path: str = Field(default="/opt/ida")
+    sandbox_idalib_mcp_port: int = Field(default=8745)
     codex_auth_encryption_key: str | None = Field(default=None)
     codex_auth_max_file_bytes: int = Field(default=262_144)
     discord_webhook_url: str | None = Field(default=None)

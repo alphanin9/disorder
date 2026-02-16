@@ -18,6 +18,10 @@ Binary / pwn:
 Reverse engineering:
 - Use `objdump -d`, `readelf -a`, `nm`, `strings`, and scripting for automation.
 - Capture function offsets and notable constants in the README.
+- If IDA MCP is available, use it for decompilation/xref-heavy workflows:
+  - `idalib-mcp` default endpoint is `http://127.0.0.1:8745/mcp`.
+  - Prefer extracting structured outputs (functions, xrefs, pseudocode) into `/workspace/run`.
+  - If IDA MCP is unavailable for this run, continue with binutils-based reversing and document that fallback.
 
 Crypto / forensics:
 - Use `pycryptodome` primitives rather than ad-hoc implementations.

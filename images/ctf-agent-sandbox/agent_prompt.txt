@@ -44,5 +44,6 @@ Execution rules:
   `flag_verification`, `deliverables`, `repro_steps`, `key_findings`, `evidence`, `notes`.
 - `status` must be one of: `flag_found`, `deliverable_produced`, `blocked`.
 - `stop_criterion_met` must be one of: `primary`, `secondary`, `none`.
+- If IDA MCP is configured for this run, prefer it for reverse engineering tasks that benefit from structured decompilation and xrefs.
 - If you identify a candidate flag, call MCP tool `verify_flag_candidate` and copy its returned object into `flag_verification`.
 - Do not invent alternate field names (for example `challenge`, `summary`, `flag_found` booleans) in place of the required schema.
