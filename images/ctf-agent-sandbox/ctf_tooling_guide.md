@@ -21,6 +21,7 @@ Reverse engineering:
 - If IDA MCP is available, use it for decompilation/xref-heavy workflows:
   - `idalib-mcp` default endpoint is `http://127.0.0.1:8745/mcp`.
   - Prefer extracting structured outputs (functions, xrefs, pseudocode) into `/workspace/run`.
+  - When working with the IDA MCP, keep in mind that `/workspace/chal` is read-only and autoanalysis will not be able to open the artifact due to it creating files in the same directory. If the autoanalysis fails to open the file, copy the file into `/workspace/run`.
   - If IDA MCP is unavailable for this run, continue with binutils-based reversing and document that fallback.
 
 Crypto / forensics:
