@@ -28,6 +28,10 @@ Crypto / forensics:
 - Use `pycryptodome` primitives rather than ad-hoc implementations.
 - Use `z3-solver` for constraint solving where applicable.
 - Validate decoded output assumptions before concluding.
+- Prefer `sage` or `sage -python` for algebra, finite fields, ECC, lattices, and modular arithmetic workflows.
+- Use `sympy` for symbolic simplification/factoring and equation solving.
+- Use `numpy` for matrix/vector-heavy prototypes when exact arithmetic is not required.
+- Save math scripts and intermediate outputs to `/workspace/run` and reference them in `result.json` evidence.
 
 Web / protocol:
 - Use `curl`, `wget`, `nc`, `socat` against allowlisted endpoints only.

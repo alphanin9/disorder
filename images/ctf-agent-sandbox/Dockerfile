@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -24,6 +24,7 @@ RUN apt-get update && \
     patchelf \
     p7zip-full \
     ripgrep \
+    sagemath \
     socat \
     strace \
     unzip \
@@ -36,9 +37,11 @@ RUN pip install --no-cache-dir \
     https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip \
     idapro \
     libdebug \
+    numpy \
     pwntools \
     pycryptodome \
     ropper \
+    sympy \
     uv \
     z3-solver && \
     npm install -g @openai/codex

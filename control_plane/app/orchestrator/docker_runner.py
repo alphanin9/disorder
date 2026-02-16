@@ -118,6 +118,7 @@ class DockerRunner:
             host_chal_dir = host_run_dir / "chal"
             host_run_mount = host_run_dir / "run"
             auth_mount_volume = self._sandbox_auth_volumes(db=db, run_dir=run_dir, host_run_dir=host_run_dir)
+            skills_mount_volume = self._sandbox_codex_skills_volumes()
             ida_mount_volume, ida_env = self._sandbox_ida_mount_and_env()
 
             volumes = {
@@ -125,6 +126,7 @@ class DockerRunner:
                 str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
             }
             volumes.update(auth_mount_volume)
+            volumes.update(skills_mount_volume)
             volumes.update(ida_mount_volume)
             sandbox_env = self._sandbox_environment()
             sandbox_env.update(ida_env)
@@ -400,6 +402,7 @@ class DockerRunner:
 
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         env.setdefault("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
+        env.setdefault("CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills")
         return env
 
     def _sandbox_ida_mount_and_env(self) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
@@ -442,6 +445,19 @@ class DockerRunner:
         if staged_from_store_count > 0:
             return {str(host_run_dir / ".auth" / "codex"): {"bind": "/workspace/run/.auth_seed/codex", "mode": "ro"}}
         return {}
+
+    def _sandbox_codex_skills_volumes(self) -> dict[str, dict[str, str]]:
+        host_path = (self.settings.sandbox_codex_skills_host_path or "").strip()
+        if not host_path:
+            return {}
+
+        resolved = self._resolve_host_mount_path(Path(host_path))
+        return {
+            str(resolved): {
+                "bind": "/workspace/run/.skill_seed/codex/skills",
+                "mode": "ro",
+            }
+        }
 
     def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
         copied = 0

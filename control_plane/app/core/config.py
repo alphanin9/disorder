@@ -41,6 +41,7 @@ class Settings(BaseSettings):
         default="auth.json,credentials.json,token.json,*auth*.json,*token*.json,*credential*.json,*session*.json"
     )
     sandbox_codex_auth_tag: str | None = Field(default=None)
+    sandbox_codex_skills_host_path: str | None = Field(default=None)
     sandbox_ida_host_path: str | None = Field(default=None)
     sandbox_ida_mount_path: str = Field(default="/opt/ida")
     sandbox_ida_registry_host_path: str | None = Field(default=None)

@@ -7,7 +7,7 @@
 - `minio`: object storage for challenge artifacts, run results, logs, deliverables.
 - `auth store` (in `integration_configs`): encrypted, tagged Codex auth files for browser upload + sandbox staging.
 - `sandbox` container (`ctf-agent-sandbox:latest`): executes one RunSpec with backend `mock|codex|claude_code`.
-  - Includes baseline CTF tooling (`pwntools`, `gdb`, `binutils`, `strace`, `socat`, `z3-solver`, etc.) and Codex CLI.
+  - Includes baseline CTF tooling (`pwntools`, `gdb`, `binutils`, `strace`, `socat`, `z3-solver`, `SageMath`, `SymPy`, `NumPy`, etc.) and Codex CLI.
 - `cli`: Typer client for sync/list/run/log/result workflows.
 
 ## Data flow
@@ -19,6 +19,7 @@
    - Run workspace is mounted read-write at `/workspace/run`.
    - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
    - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only as seed material; sandbox startup copies it into writable `CODEX_HOME`.
+   - If `SANDBOX_CODEX_SKILLS_HOST_PATH` is configured, orchestrator mounts that directory read-only into the run and sandbox startup copies all seeded skill files into writable `CODEX_HOME/skills`.
    - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
    - If `SANDBOX_IDA_HOST_PATH` is configured, orchestrator mounts IDA read-only, exports `IDADIR`, optionally mounts `/home/ctf/.idapro` for persistent registry state, and sandbox startup auto-accepts configured EULA keys before launching `uv run idalib-mcp` and registering it as an HTTP MCP server for Codex.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.

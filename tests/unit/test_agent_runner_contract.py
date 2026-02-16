@@ -51,7 +51,35 @@ def test_normalize_result_payload_accepts_flag_output() -> None:
     assert normalized["deliverables"][0]["type"] == "solve_script"
 
 
-def test_codex_command_includes_flag_verify_mcp_by_default(tmp_path) -> None:
+def test_normalize_result_payload_preserves_math_deliverables_and_evidence() -> None:
+    module = _load_agent_runner_module()
+    spec = {"challenge_id": "abc-123", "challenge_name": "Example"}
+    raw = {
+        "status": "deliverable_produced",
+        "deliverables": [
+            {"path": "solve.sage", "type": "other", "how_to_run": "sage solve.sage"},
+            {"path": "solve.py", "type": "solve_script", "how_to_run": "python solve.py"},
+        ],
+        "evidence": [
+            {"kind": "command", "ref": "sage solve.sage", "summary": "Recovered private exponent."},
+            {"kind": "not-a-kind", "ref": "matrix.txt", "summary": "Intermediate matrix output."},
+        ],
+    }
+
+    normalized = module._normalize_result_payload(spec, raw)
+    assert normalized["status"] == "deliverable_produced"
+    assert normalized["deliverables"][0] == {
+        "path": "solve.sage",
+        "type": "other",
+        "how_to_run": "sage solve.sage",
+    }
+    assert normalized["deliverables"][1]["type"] == "solve_script"
+    assert normalized["evidence"][0]["kind"] == "command"
+    assert normalized["evidence"][1]["kind"] == "file"
+    assert normalized["evidence"][1]["ref"] == "matrix.txt"
+
+
+def test_codex_command_defaults_without_inline_mcp_overrides(tmp_path) -> None:
     module = _load_agent_runner_module()
     prompt_file = tmp_path / "prompt.txt"
     prompt_file.write_text("test", encoding="utf-8")
@@ -62,31 +90,44 @@ def test_codex_command_includes_flag_verify_mcp_by_default(tmp_path) -> None:
     joined = " ".join(command)
     assert "--json" in command
     assert 'model_reasoning_effort="medium"' in joined
-    assert "mcp_servers.flag_verify.command" in joined
-    assert "mcp_servers.flag_verify.args" in joined
 
 
-def test_codex_command_can_disable_flag_verify_mcp(monkeypatch, tmp_path) -> None:
+def test_write_managed_codex_mcp_config_includes_flag_verify_by_default(monkeypatch, tmp_path) -> None:
     module = _load_agent_runner_module()
-    prompt_file = tmp_path / "prompt.txt"
-    prompt_file.write_text("test", encoding="utf-8")
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("CODEX_FLAG_VERIFY_MCP_ENABLED", raising=False)
+
+    module._write_managed_codex_mcp_config()
+    config_path = codex_home / "config.toml"
+    rendered = config_path.read_text(encoding="utf-8")
+    assert "[mcp_servers.flag_verify]" in rendered
+    assert 'command = "python"' in rendered
+    assert 'args = ["/usr/local/bin/flag_verify_mcp.py", "--spec", "/workspace/run/spec.json"]' in rendered
+
+
+def test_write_managed_codex_mcp_config_can_disable_flag_verify(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("CODEX_FLAG_VERIFY_MCP_ENABLED", "0")
 
-    command, _, _ = module._resolve_backend_command("codex", prompt_file)
-    joined = " ".join(command)
-    assert "mcp_servers.flag_verify.command" not in joined
-    assert "mcp_servers.flag_verify.args" not in joined
+    module._write_managed_codex_mcp_config()
+    config_path = codex_home / "config.toml"
+    if config_path.exists():
+        assert "[mcp_servers.flag_verify]" not in config_path.read_text(encoding="utf-8")
 
 
-def test_codex_command_includes_additional_mcp_overrides(tmp_path) -> None:
+def test_write_managed_codex_mcp_config_includes_ida_url(monkeypatch, tmp_path) -> None:
     module = _load_agent_runner_module()
-    prompt_file = tmp_path / "prompt.txt"
-    prompt_file.write_text("test", encoding="utf-8")
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
-    extra = ["-c", 'mcp_servers.ida_pro.url="http://127.0.0.1:8745/mcp"']
-    command, _, _ = module._resolve_backend_command("codex", prompt_file, additional_mcp_overrides=extra)
-    joined = " ".join(command)
-    assert "mcp_servers.ida_pro.url" in joined
+    module._write_managed_codex_mcp_config("http://127.0.0.1:8745/mcp")
+    config_path = codex_home / "config.toml"
+    rendered = config_path.read_text(encoding="utf-8")
+    assert "[mcp_servers.ida_pro]" in rendered
+    assert 'url = "http://127.0.0.1:8745/mcp"' in rendered
 
 
 def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> None:
@@ -95,9 +136,9 @@ def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> 
     monkeypatch.delenv("SANDBOX_IDA_INSTALL_PATH", raising=False)
     monkeypatch.delenv("IDADIR", raising=False)
 
-    process, overrides = module._start_idalib_mcp_if_available()
+    process, url = module._start_idalib_mcp_if_available()
     assert process is None
-    assert overrides == []
+    assert url is None
 
 
 def test_accept_ida_eula_disabled_by_env(monkeypatch) -> None:
@@ -140,3 +181,25 @@ def test_seed_writable_codex_home_copies_auth_seed(monkeypatch, tmp_path) -> Non
     copied = codex_home / "auth.json"
     assert copied.exists()
     assert copied.read_text(encoding="utf-8") == '{"token":"x"}'
+
+
+def test_seed_writable_codex_home_copies_skill_seed(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    skills_seed_dir = tmp_path / "skills-seed"
+    codex_home = tmp_path / "codex-home"
+    (skills_seed_dir / "ctf-player").mkdir(parents=True)
+    (skills_seed_dir / "ctf-player" / "SKILL.md").write_text("# ctf-player", encoding="utf-8")
+    (skills_seed_dir / "ctf-player" / "references").mkdir(parents=True)
+    (skills_seed_dir / "ctf-player" / "references" / "notes.txt").write_text("hello", encoding="utf-8")
+
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_SKILLS_SEED_DIR", str(skills_seed_dir))
+    monkeypatch.delenv("CODEX_AUTH_SEED_DIR", raising=False)
+    module._seed_writable_codex_home()
+
+    copied_skill = codex_home / "skills" / "ctf-player" / "SKILL.md"
+    copied_ref = codex_home / "skills" / "ctf-player" / "references" / "notes.txt"
+    assert copied_skill.exists()
+    assert copied_skill.read_text(encoding="utf-8") == "# ctf-player"
+    assert copied_ref.exists()
+    assert copied_ref.read_text(encoding="utf-8") == "hello"

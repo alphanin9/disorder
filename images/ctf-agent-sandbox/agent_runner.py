@@ -23,6 +23,8 @@ STOP_CRITERIA_VALUES = {"primary", "secondary", "none"}
 DELIVERABLE_TYPES = {"solve_script", "exploit", "binary", "writeup", "other"}
 EVIDENCE_KINDS = {"command", "file", "log", "decompiler"}
 FLAG_VERIFICATION_METHODS = {"platform_submit", "local_check", "regex_only", "none"}
+MANAGED_MCP_CONFIG_BEGIN = "# BEGIN DISORDER MANAGED MCP SERVERS"
+MANAGED_MCP_CONFIG_END = "# END DISORDER MANAGED MCP SERVERS"
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -30,6 +32,10 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _codex_home_path() -> Path:
+    return Path(os.getenv("CODEX_HOME") or (Path.home() / ".codex"))
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -46,25 +52,38 @@ def _write_readme(content: str) -> None:
     (RUN_DIR / "README.md").write_text(content, encoding="utf-8")
 
 
-def _seed_writable_codex_home() -> None:
-    codex_home = Path(os.getenv("CODEX_HOME") or (Path.home() / ".codex"))
-    seed_dir = Path(os.getenv("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex"))
+def _copy_seed_tree(seed_dir: Path, target_root: Path, file_mode: int | None = None) -> int:
     if not seed_dir.exists() or not seed_dir.is_dir():
-        codex_home.mkdir(parents=True, exist_ok=True)
-        return
+        return 0
 
-    codex_home.mkdir(parents=True, exist_ok=True)
+    copied = 0
     for source in seed_dir.rglob("*"):
         if source.is_dir():
             continue
         rel = source.relative_to(seed_dir)
-        target = codex_home / rel
+        target = target_root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes())
-        try:
-            target.chmod(0o600)
-        except OSError:
-            pass
+        copied += 1
+        if file_mode is not None:
+            try:
+                target.chmod(file_mode)
+            except OSError:
+                pass
+    return copied
+
+
+def _seed_writable_codex_home() -> None:
+    codex_home = _codex_home_path()
+    codex_home.mkdir(parents=True, exist_ok=True)
+    auth_seed_dir = Path(os.getenv("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex"))
+    _copy_seed_tree(auth_seed_dir, codex_home, file_mode=0o600)
+
+    skills_seed_dir = Path(os.getenv("CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills"))
+    skills_dir = Path(os.getenv("CODEX_SKILLS_DIR") or (codex_home / "skills"))
+    copied_skills = _copy_seed_tree(skills_seed_dir, skills_dir)
+    if copied_skills > 0:
+        print(f"[agent-runner] seeded {copied_skills} Codex skill files into {skills_dir}", flush=True)
 
 
 def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
@@ -167,7 +186,7 @@ def _codex_auth_source() -> str | None:
         if os.getenv(env_name):
             return f"env:{env_name}"
 
-    codex_home = Path(os.getenv("CODEX_HOME") or (Path.home() / ".codex"))
+    codex_home = _codex_home_path()
     if not codex_home.exists():
         return None
 
@@ -204,6 +223,88 @@ def _parse_port_env(name: str, default: int) -> int:
     if parsed <= 0:
         return default
     return parsed
+
+
+def _strip_managed_mcp_block(content: str) -> str:
+    lines = content.splitlines()
+    kept: list[str] = []
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == MANAGED_MCP_CONFIG_BEGIN:
+            in_block = True
+            continue
+        if stripped == MANAGED_MCP_CONFIG_END:
+            in_block = False
+            continue
+        if not in_block:
+            kept.append(line)
+
+    while kept and kept[-1] == "":
+        kept.pop()
+    if not kept:
+        return ""
+    return "\n".join(kept) + "\n"
+
+
+def _managed_mcp_config_block(ida_url: str | None) -> str:
+    lines: list[str] = []
+    if _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
+        server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
+        mcp_script = os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py")
+        mcp_args = [mcp_script, "--spec", SPEC_PATH.as_posix()]
+        lines.extend(
+            [
+                "[mcp_servers.flag_verify]",
+                f"command = {json.dumps(server_command)}",
+                f"args = {json.dumps(mcp_args)}",
+                "",
+            ]
+        )
+
+    if ida_url:
+        lines.extend(
+            [
+                "[mcp_servers.ida_pro]",
+                f"url = {json.dumps(ida_url)}",
+                "",
+            ]
+        )
+
+    if not lines:
+        return ""
+    block = [MANAGED_MCP_CONFIG_BEGIN, ""]
+    block.extend(lines)
+    block.append(MANAGED_MCP_CONFIG_END)
+    return "\n".join(block) + "\n"
+
+
+def _write_managed_codex_mcp_config(ida_url: str | None = None) -> None:
+    codex_home = _codex_home_path()
+    codex_home.mkdir(parents=True, exist_ok=True)
+    config_path = codex_home / "config.toml"
+
+    existing = ""
+    if config_path.exists():
+        existing = config_path.read_text(encoding="utf-8")
+
+    cleaned = _strip_managed_mcp_block(existing)
+    managed = _managed_mcp_config_block(ida_url)
+    if managed:
+        if cleaned and not cleaned.endswith("\n\n"):
+            cleaned = cleaned + "\n"
+        rendered = cleaned + managed
+    else:
+        rendered = cleaned
+
+    if rendered:
+        config_path.write_text(rendered, encoding="utf-8")
+        print(f"[agent-runner] updated Codex MCP config at {config_path}", flush=True)
+        return
+
+    if config_path.exists():
+        config_path.unlink()
+        print(f"[agent-runner] removed empty Codex config at {config_path}", flush=True)
 
 
 def _idalib_mcp_url(port: int) -> str:
@@ -267,33 +368,33 @@ def _accept_ida_eula(ida_install_path: str) -> bool:
     return True
 
 
-def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, list[str]]:
+def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str | None]:
     if not _env_truthy("SANDBOX_IDA_ENABLED", default=False):
         print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True)
-        return None, []
+        return None, None
 
     ida_install_path = os.getenv("SANDBOX_IDA_INSTALL_PATH", "").strip() or os.getenv("IDADIR", "").strip()
     if not ida_install_path:
         print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_INSTALL_PATH is not set", flush=True)
-        return None, []
+        return None, None
 
     if not Path(ida_install_path).exists():
         print(f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}", flush=True)
-        return None, []
+        return None, None
 
     if not _accept_ida_eula(ida_install_path):
         print("[agent-runner] IDA MCP disabled: unable to accept IDA EULA", flush=True)
-        return None, []
+        return None, None
 
     command_template = os.getenv("SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp")
     command = shlex.split(command_template)
     if not command:
         print("[agent-runner] IDA MCP disabled: SANDBOX_IDALIB_MCP_COMMAND is empty", flush=True)
-        return None, []
+        return None, None
 
     if shutil.which(command[0]) is None:
         print(f"[agent-runner] IDA MCP disabled: command not found: {command[0]}", flush=True)
-        return None, []
+        return None, None
 
     port = _parse_port_env("SANDBOX_IDALIB_MCP_PORT", 8745)
     timeout_seconds = float(os.getenv("SANDBOX_IDALIB_MCP_STARTUP_TIMEOUT", "15"))
@@ -321,18 +422,16 @@ def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, list
     if not _wait_for_port_listen("127.0.0.1", port, timeout_seconds=timeout_seconds, process=process):
         print("[agent-runner] IDA MCP failed to become ready; disabling for this run", flush=True)
         _stop_background_process(process, "idalib-mcp")
-        return None, []
+        return None, None
 
     url = _idalib_mcp_url(port)
-    overrides = ["-c", f"mcp_servers.ida_pro.url={json.dumps(url)}"]
     print(f"[agent-runner] IDA MCP enabled at {url}", flush=True)
-    return process, overrides
+    return process, url
 
 
 def _resolve_backend_command(
     backend: str,
     prompt_file: Path,
-    additional_mcp_overrides: list[str] | None = None,
 ) -> tuple[list[str], str | None, str]:
     reasoning_effort = "medium"
     if SPEC_PATH.exists():
@@ -347,26 +446,6 @@ def _resolve_backend_command(
                 reasoning_effort = raw_effort.lower()
         except Exception:
             reasoning_effort = "medium"
-
-    def _codex_mcp_overrides() -> list[str]:
-        overrides: list[str] = []
-        if _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
-            server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
-            mcp_script = os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py")
-            mcp_args = json.dumps([mcp_script, "--spec", str(SPEC_PATH)])
-            command_value = json.dumps(server_command)
-            overrides.extend(
-                [
-                    "-c",
-                    f"mcp_servers.flag_verify.command={command_value}",
-                    "-c",
-                    f"mcp_servers.flag_verify.args={mcp_args}",
-                ]
-            )
-
-        if additional_mcp_overrides:
-            overrides.extend(additional_mcp_overrides)
-        return overrides
 
     if backend == "codex":
         command_template = os.getenv("CODEX_CLI_CMD")
@@ -391,7 +470,6 @@ def _resolve_backend_command(
             "-c",
             f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         ]
-        command.extend(_codex_mcp_overrides())
         command.append("-")
         return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command"
 
@@ -404,7 +482,7 @@ def _resolve_backend_command(
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
     idalib_process: subprocess.Popen[str] | None = None
-    mcp_overrides: list[str] = []
+    ida_mcp_url: str | None = None
     if backend == "codex":
         auth_source = _codex_auth_source()
         if auth_source is None:
@@ -415,7 +493,8 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             _write_readme("# Blocked\n\n" + message + "\n")
             _write_result(_blocked_result(spec, message))
             return 2
-        idalib_process, mcp_overrides = _start_idalib_mcp_if_available()
+        idalib_process, ida_mcp_url = _start_idalib_mcp_if_available()
+        _write_managed_codex_mcp_config(ida_url=ida_mcp_url)
 
     if backend == "codex":
         backend_name = "Codex CLI"
@@ -428,7 +507,6 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     command, stdin_input, command_source = _resolve_backend_command(
         backend=backend,
         prompt_file=prompt_file,
-        additional_mcp_overrides=mcp_overrides,
     )
     if not command:
         error = (
