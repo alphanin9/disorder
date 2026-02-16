@@ -1,4 +1,6 @@
-# Disorder Jeopardy CTF Harness (MVP)
+# Disorder Jeopardy CTF Harness
+
+![image](resources/readme_logo.gif)
 
 Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolated sandboxes.
 
@@ -69,3 +71,11 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - `npm --prefix frontend run test:run`
 - Frontend e2e smoke (requires running stack):
   - `npm --prefix frontend run test:e2e`
+
+## But why?
+
+Because I saw a similar agentic harness in use and saw a possibility.
+
+## Why is it named Disorder?
+
+To keep the naming in line. I suppose it could have been called `Cynosure` or `Blackwall` too. Maybe something else will use those names.
