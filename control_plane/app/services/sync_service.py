@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,19 +38,70 @@ def upsert_ctfd_config(db: Session, base_url: str, api_token: str) -> Integratio
     return existing
 
 
+def _resolve_auth_mode(request: CTFdSyncRequest) -> str:
+    if request.auth_mode is not None:
+        return request.auth_mode
+    if request.session_cookie:
+        return "session_cookie"
+    if request.api_token:
+        return "api_token"
+    return "session_cookie"
+
+
+def _friendly_ctfd_http_error_message(auth_mode: str, exc: httpx.HTTPStatusError) -> str | None:
+    status_code = exc.response.status_code
+    redirect_codes = {301, 302, 303, 307, 308}
+    location = (exc.response.headers.get("location") or "").lower()
+
+    if auth_mode == "session_cookie":
+        if status_code in redirect_codes and "/login" in location:
+            return "CTFd session cookie is invalid or expired. Paste a fresh session cookie and try again."
+        if status_code in {401, 403}:
+            return "CTFd session cookie is invalid or expired. Paste a fresh session cookie and try again."
+
+    if auth_mode == "api_token" and status_code in {401, 403}:
+        return "CTFd API token is invalid or missing required permissions."
+
+    return None
+
+
 def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
     config = get_ctfd_config(db)
     base_url = str(request.base_url) if request.base_url else (config or {}).get("base_url")
-    api_token = request.api_token or (config or {}).get("api_token")
+    auth_mode = _resolve_auth_mode(request)
+    session_cookie = (request.session_cookie or "").strip()
+    configured_api_token = (config or {}).get("api_token")
+    api_token = request.api_token or configured_api_token
 
-    if not base_url or not api_token:
-        raise ValueError("CTFd integration is not configured. Provide base_url and api_token.")
+    if not base_url:
+        raise ValueError("CTFd integration is not configured. Provide base_url.")
 
-    upsert_ctfd_config(db, base_url=base_url, api_token=api_token)
+    if auth_mode == "session_cookie":
+        if not session_cookie:
+            raise ValueError("CTFd sync with session_cookie auth requires session_cookie.")
+        # Persist base_url for convenience; never persist session cookies.
+        if configured_api_token:
+            upsert_ctfd_config(db, base_url=base_url, api_token=configured_api_token)
+        else:
+            stmt = select(IntegrationConfig).where(IntegrationConfig.name == "ctfd")
+            existing = db.execute(stmt).scalar_one_or_none()
+            if existing is None:
+                existing = IntegrationConfig(name="ctfd", config_json={})
+                db.add(existing)
+            existing.config_json = {"base_url": base_url.rstrip("/")}
+            existing.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(existing)
+        client = CTFdClient(base_url=base_url, session_cookie=session_cookie)
+    else:
+        if not api_token:
+            raise ValueError("CTFd integration is not configured. Provide base_url and api_token.")
+        upsert_ctfd_config(db, base_url=base_url, api_token=api_token)
+        client = CTFdClient(base_url=base_url, api_token=api_token)
+
     blob_store = get_blob_store()
     ctf_event = ensure_ctf_for_sync(db, base_url=base_url)
 
-    client = CTFdClient(base_url=base_url, api_token=api_token)
     try:
         summaries = client.list_challenges()
         synced = 0
@@ -111,5 +163,12 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
 
         db.commit()
         return {"synced": synced, "platform": "ctfd"}
+    except httpx.HTTPStatusError as exc:
+        message = _friendly_ctfd_http_error_message(auth_mode=auth_mode, exc=exc)
+        if message:
+            raise ValueError(message) from exc
+        raise ValueError(f"CTFd request failed with HTTP {exc.response.status_code}.") from exc
+    except httpx.RequestError as exc:
+        raise ValueError("Unable to reach CTFd. Check base URL and network connectivity.") from exc
     finally:
         client.close()

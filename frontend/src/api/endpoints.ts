@@ -9,6 +9,9 @@ import type {
   CodexAuthStatusResponse,
   CTF,
   CTFCreateRequest,
+  CTFdConfigResponse,
+  CTFdSyncRequest,
+  CTFdSyncResponse,
   CTFListResponse,
   CTFUpdateRequest,
   RunCreateRequest,
@@ -82,6 +85,17 @@ export async function updateCtf(ctfId: string, payload: CTFUpdateRequest): Promi
 export async function deleteCtf(ctfId: string): Promise<void> {
   await apiRequest<unknown>(`/ctfs/${ctfId}`, {
     method: "DELETE",
+  });
+}
+
+export async function getCtfdConfig(): Promise<CTFdConfigResponse> {
+  return apiRequest<CTFdConfigResponse>("/integrations/ctfd/config");
+}
+
+export async function syncCtfd(payload: CTFdSyncRequest): Promise<CTFdSyncResponse> {
+  return apiRequest<CTFdSyncResponse>("/integrations/ctfd/sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

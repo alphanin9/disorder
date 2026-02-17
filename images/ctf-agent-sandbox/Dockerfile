@@ -11,6 +11,7 @@ RUN apt-get update && \
     binutils \
     build-essential \
     ca-certificates \
+    cpio \
     curl \
     file \
     gdb \

@@ -18,6 +18,16 @@ export type CTF = components["schemas"]["CTFRead"];
 export type CTFListResponse = components["schemas"]["CTFListResponse"];
 export type CTFCreateRequest = components["schemas"]["CTFCreateRequest"];
 export type CTFUpdateRequest = components["schemas"]["CTFUpdateRequest"];
+export type CTFdConfigResponse = components["schemas"]["CTFdConfigResponse"];
+type BaseCTFdSyncRequest = components["schemas"]["CTFdSyncRequest"];
+export type CTFdSyncRequest = BaseCTFdSyncRequest & {
+  auth_mode?: "session_cookie" | "api_token" | null;
+  session_cookie?: string | null;
+};
+export type CTFdSyncResponse = {
+  synced: number;
+  platform: string;
+};
 export type ChallengeCreateRequest = components["schemas"]["ChallengeCreateRequest"];
 export type ChallengeUpdateRequest = components["schemas"]["ChallengeUpdateRequest"];
 export type ChallengeArtifact = components["schemas"]["ChallengeArtifactRead"];

@@ -5,7 +5,11 @@
 
 ## Integrations
 - `POST /integrations/ctfd/sync`
-  - body: `{ "base_url": "https://...", "api_token": "..." }` (optional if already configured)
+  - body:
+    - session-cookie mode (default): `{ "base_url": "https://...", "auth_mode": "session_cookie", "session_cookie": "session=..." }`
+    - api-token mode: `{ "base_url": "https://...", "auth_mode": "api_token", "api_token": "..." }`
+  - `base_url` may be omitted if previously configured.
+  - session cookie is treated as one-time input and is not persisted.
   - response: `{ "synced": <int>, "platform": "ctfd" }`
 - `GET /integrations/ctfd/config`
 

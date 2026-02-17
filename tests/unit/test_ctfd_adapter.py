@@ -50,3 +50,20 @@ def test_ctfd_client_parsing() -> None:
             assert verify["status"] == "correct"
         finally:
             client.close()
+
+
+def test_ctfd_client_supports_session_cookie_auth() -> None:
+    with respx.mock(assert_all_called=True) as mock_router:
+        def list_handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers.get("Cookie") == "session=abc123"
+            assert request.headers.get("Authorization") is None
+            return httpx.Response(200, json={"data": []})
+
+        mock_router.get("https://ctfd.local/api/v1/challenges").mock(side_effect=list_handler)
+
+        client = CTFdClient(base_url="https://ctfd.local", session_cookie="abc123")
+        try:
+            challenges = client.list_challenges()
+            assert challenges == []
+        finally:
+            client.close()

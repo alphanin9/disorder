@@ -23,13 +23,29 @@ class CTFdChallengeSummary:
 
 
 class CTFdClient:
-    def __init__(self, base_url: str, api_token: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_token: str | None = None,
+        session_cookie: str | None = None,
+        timeout: float = 30.0,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
+        self.session_cookie = session_cookie
         self.timeout = timeout
+        headers: dict[str, str] = {}
+
+        if self.api_token:
+            headers["Authorization"] = f"Token {self.api_token}"
+        elif self.session_cookie:
+            headers["Cookie"] = _normalize_session_cookie(self.session_cookie)
+        else:
+            raise ValueError("CTFdClient requires either api_token or session_cookie")
+
         self._client = httpx.Client(
             timeout=self.timeout,
-            headers={"Authorization": f"Token {self.api_token}"},
+            headers=headers,
         )
 
     def close(self) -> None:
@@ -75,6 +91,15 @@ class CTFdClient:
         if isinstance(data, dict):
             return data
         return {"status": "unknown", "raw": data}
+
+
+def _normalize_session_cookie(cookie_value: str) -> str:
+    raw = cookie_value.strip()
+    if raw.lower().startswith("cookie:"):
+        raw = raw[7:].strip()
+    if "=" in raw:
+        return raw
+    return f"session={raw}"
 
 
 def normalize_description(raw_description: str | None) -> str:
