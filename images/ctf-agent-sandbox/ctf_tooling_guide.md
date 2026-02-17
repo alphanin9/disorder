@@ -14,15 +14,21 @@ Binary / pwn:
 - Use `gdb`/`gdb-multiarch`, `objdump`, `readelf`, `strings`, `patchelf` as needed.
 - Prefer reproducible solve scripts with `pwntools`.
 - In `pwntools`, set `context.binary`, `context.log_level`, and deterministic timeouts.
+- For exploit binaries (example: VM challenges), prefer a smaller binary size.
+- For cross-compiled binaries (example: Windows), obtain a Zig bundle and utilize it.
 
 Reverse engineering:
 - Use `objdump -d`, `readelf -a`, `nm`, `strings`, and scripting for automation.
 - Capture function offsets and notable constants in the README.
-- If IDA MCP is available, use it for decompilation/xref-heavy workflows:
+- If IDA MCP is available, use it for decompilation and reversing-heavy workflows:
   - `idalib-mcp` default endpoint is `http://127.0.0.1:8745/mcp`.
   - Prefer extracting structured outputs (functions, xrefs, pseudocode) into `/workspace/run`.
   - When working with the IDA MCP, keep in mind that `/workspace/chal` is read-only and autoanalysis will not be able to open the artifact due to it creating files in the same directory. If the autoanalysis fails to open the file, copy the file into `/workspace/run`.
   - If IDA MCP is unavailable for this run, continue with binutils-based reversing and document that fallback.
+  - If code obfuscation or anti-reverse engineering tooling techniques are suspected, verify results against binutils-based reversing and document that.
+
+Debugging:
+- For debugging, it is best to use `libdebug` for Python script-driven debugging instead of directly utilizing GDB. The `libdebug` library has been installed into the agent sandbox.
 
 Crypto / forensics:
 - Use `pycryptodome` primitives rather than ad-hoc implementations.
