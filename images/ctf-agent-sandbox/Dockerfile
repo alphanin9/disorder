@@ -31,8 +31,19 @@ RUN apt-get update && \
     unzip \
     vim-common \
     wget \
-    zip && \
+    zip
+
+# Setup Dotnet SDK for ilspycmd
+RUN wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && \
+    dpkg -i packages-microsoft-prod.deb && \
+    rm packages-microsoft-prod.deb && \
+    apt-get update && \
+    apt-get install -y \
+    dotnet-sdk-8.0 \
+    dotnet-sdk-10.0 && \
     rm -rf /var/lib/apt/lists/*
+
+RUN dotnet tool install ilspycmd
 
 RUN pip install --no-cache-dir \
     https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip \
@@ -61,5 +72,8 @@ COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
 RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py
 
 USER ctf
+
+# Note: apparently needed
+RUN dotnet tool restore
 
 ENTRYPOINT ["python", "/usr/local/bin/agent_runner.py"]

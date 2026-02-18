@@ -11,11 +11,14 @@ General workflow:
 
 Binary / pwn:
 - Use `pwn checksec <binary>` first.
-- Use `gdb`/`gdb-multiarch`, `objdump`, `readelf`, `strings`, `patchelf` as needed.
+- Use `objdump`, `readelf`, `strings`, `patchelf` as needed.
 - Prefer reproducible solve scripts with `pwntools`.
 - In `pwntools`, set `context.binary`, `context.log_level`, and deterministic timeouts.
 - For exploit binaries (example: VM challenges), prefer a smaller binary size.
 - For cross-compiled binaries (example: Windows), obtain a Zig bundle and utilize it.
+
+Debugging:
+- Use `libdebug` for Python script-driven debugging instead of directly utilizing GDB. You have a skill for libdebug's API reference.
 
 Reverse engineering:
 - Use `objdump -d`, `readelf -a`, `nm`, `strings`, and scripting for automation.
@@ -25,10 +28,11 @@ Reverse engineering:
   - Prefer extracting structured outputs (functions, xrefs, pseudocode) into `/workspace/run`.
   - When working with the IDA MCP, keep in mind that `/workspace/chal` is read-only and autoanalysis will not be able to open the artifact due to it creating files in the same directory. If the autoanalysis fails to open the file, copy the file into `/workspace/run`.
   - If IDA MCP is unavailable for this run, continue with binutils-based reversing and document that fallback.
-  - If code obfuscation or anti-reverse engineering tooling techniques are suspected, verify results against binutils-based reversing and document that.
-
-Debugging:
-- For debugging, it is best to use `libdebug` for Python script-driven debugging instead of directly utilizing GDB. The `libdebug` library has been installed into the agent sandbox.
+- If code obfuscation or anti-reverse engineering tooling techniques are suspected **verify IDA MCP results against binutils-based reversing and document that.**
+  - Examples of potential obfuscation/antidebug/anti-RE tooling:
+    - Flag computations do not return correct flag
+    - Binary behavior changes for no discernible reason between being run under debugger and normally
+- For .NET binaries, you have access to `ilspycmd`. You can invoke it via `dotnet ilspycmd`. For NET.Core bundles, you may want to run `dotnet ilspycmd --dump-package` to extract the bundle contents for analysis.
 
 Crypto / forensics:
 - Use `pycryptodome` primitives rather than ad-hoc implementations.
