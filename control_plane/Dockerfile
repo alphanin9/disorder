@@ -17,6 +17,7 @@ COPY images /app/images
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir . && \
+    sed -i 's/\r$//' /app/control_plane/entrypoint.sh && \
     chmod +x /app/control_plane/entrypoint.sh
 
 EXPOSE 8000
