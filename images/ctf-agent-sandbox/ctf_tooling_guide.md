@@ -12,6 +12,7 @@ General workflow:
 Binary / pwn:
 - Use `pwn checksec <binary>` first.
 - Use `objdump`, `readelf`, `strings`, `patchelf` as needed.
+- To determine the memory layout of a binary (for example: to identify writable memory regions for SROP), use `/proc/{pid}/maps`.
 - Prefer reproducible solve scripts with `pwntools`.
 - In `pwntools`, set `context.binary`, `context.log_level`, and deterministic timeouts.
 - For exploit binaries (example: VM challenges), prefer a smaller binary size.
