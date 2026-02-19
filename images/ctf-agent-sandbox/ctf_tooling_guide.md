@@ -17,6 +17,7 @@ Binary / pwn:
 - In `pwntools`, set `context.binary`, `context.log_level`, and deterministic timeouts.
 - For exploit binaries (example: VM challenges), prefer a smaller binary size.
 - For cross-compiled binaries (example: Windows), obtain a Zig bundle and utilize it.
+- When designing ROP chains, think more.
 
 Debugging:
 - Use `libdebug` for Python script-driven debugging instead of directly utilizing GDB. You have a skill for libdebug's API reference.
