@@ -19,6 +19,7 @@ Binary / pwn:
 - For cross-compiled binaries (example: Windows), obtain a Zig bundle and utilize it.
 - When designing ROP chains, think more.
 - When designing heap exploitation plans, think more.
+- For QEMU work you have the x86 and x86-64 system emulation QEMU binaries (package `qemu-system-x86`) installed. No other architectures are provided due to concerns about container image size. Keep in mind KVM cannot be used.
 
 Debugging:
 - Your environment has `libdebug`, `pwndbg` and `gdb` provided.

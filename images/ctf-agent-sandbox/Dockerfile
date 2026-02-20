@@ -9,6 +9,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     bash \
     binutils \
+    binwalk \
     build-essential \
     ca-certificates \
     cpio \
@@ -24,6 +25,7 @@ RUN apt-get update && \
     npm \
     patchelf \
     p7zip-full \
+    qemu-system-x86 \
     ripgrep \
     sagemath \
     socat \
@@ -50,6 +52,7 @@ RUN pip install --no-cache-dir \
     idapro \
     libdebug \
     numpy \
+    pefile \
     pwntools \
     pycryptodome \
     ropper \
