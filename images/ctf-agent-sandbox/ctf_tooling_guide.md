@@ -18,9 +18,16 @@ Binary / pwn:
 - For exploit binaries (example: VM challenges), prefer a smaller binary size.
 - For cross-compiled binaries (example: Windows), obtain a Zig bundle and utilize it.
 - When designing ROP chains, think more.
+- When designing heap exploitation plans, think more.
 
 Debugging:
-- Use `libdebug` for Python script-driven debugging instead of directly utilizing GDB. You have a skill for libdebug's API reference.
+- Your environment has `libdebug`, `pwndbg` and `gdb` provided.
+- Use `libdebug` for Python script-driven debugging instead of directly utilizing `pwndbg`/`gdb`. You have a skill for libdebug's API reference.
+- For heap inspection purposes, use `pwndbg`.
+- The hierarchy of debugging tool usage is:
+  - `libdebug` (this should be the default)
+  - `pwndbg` (if `libdebug` is not functioning correctly or you need heap inspection/other useful features `libdebug` does not provide)
+  - `gdb` (if `pwndbg` encounters problems)
 
 Reverse engineering:
 - Use `objdump -d`, `readelf -a`, `nm`, `strings`, and scripting for automation.

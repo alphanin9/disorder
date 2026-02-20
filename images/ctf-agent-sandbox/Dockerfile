@@ -58,6 +58,9 @@ RUN pip install --no-cache-dir \
     z3-solver && \
     npm install -g @openai/codex
 
+RUN wget --https-only --secure-protocol=TLSv1_2 -qO- 'https://install.pwndbg.re' \
+    | sh -s -- -t pwndbg-gdb
+
 RUN useradd -m -u 1000 -s /bin/bash ctf && \
     mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
     chown -R ctf:ctf /workspace /home/ctf
