@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    aeskeyfind \
     bash \
     binutils \
     binwalk \
@@ -34,6 +35,10 @@ RUN apt-get update && \
     vim-common \
     wget \
     zip
+
+# 2nd stage packages (to avoid long container rebuilds...)
+RUN apt-get install -y --no-install-recommends \
+    pahole
 
 # Setup Dotnet SDK for ilspycmd
 RUN wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && \

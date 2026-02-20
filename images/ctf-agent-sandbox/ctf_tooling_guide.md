@@ -20,6 +20,7 @@ Binary / pwn:
 - When designing ROP chains, think more.
 - When designing heap exploitation plans, think more.
 - For QEMU work you have the x86 and x86-64 system emulation QEMU binaries (package `qemu-system-x86`) installed. No other architectures are provided due to concerns about container image size. Keep in mind KVM cannot be used.
+- You have `pahole` for dumping structure information from DWARF debug info for when precise struct info is needed.
 
 Debugging:
 - Your environment has `libdebug`, `pwndbg` and `gdb` provided.
@@ -52,6 +53,7 @@ Crypto / forensics:
 - Use `sympy` for symbolic simplification/factoring and equation solving.
 - Use `numpy` for matrix/vector-heavy prototypes when exact arithmetic is not required.
 - Save math scripts and intermediate outputs to `/workspace/run` and reference them in `result.json` evidence.
+- To find AES keys in files/memory dumps when needed, use `aeskeyfind`.
 
 Web / protocol:
 - Use `curl`, `wget`, `nc`, `socat` against allowlisted endpoints only.
