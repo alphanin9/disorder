@@ -39,6 +39,9 @@
 - `GET /runs?active_only=true&status=running&challenge_id=<uuid>&limit=100`
 - `POST /runs`
   - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "reasoning_effort": "low|medium|high|xhigh", "budgets": { "max_minutes": 30, "max_commands": null }, "stop_criteria": {...optional...}, "local_deploy_enabled": false }`
+- `POST /runs/{run_id}/continue`
+  - parent run must be terminal.
+  - body: `{ "message": "...", "type": "hint|deliverable_fix|strategy_change|other"?, "time_limit_seconds": 3600?, "stop_criteria_override": {...optional...}, "reuse_parent_artifacts": true }`
 - `GET /runs/{run_id}`
 - `POST /runs/{run_id}/terminate` (force stop a queued/running run)
 - `DELETE /runs/{run_id}` (completed runs only)
@@ -48,4 +51,10 @@
 
 ## Notes
 - Run status values: `queued|running|flag_found|deliverable_produced|blocked|timeout`
+- Run objects include continuation lineage metadata:
+  - `parent_run_id`
+  - `continuation_depth`
+  - `continuation_input`
+  - `continuation_type`
+- `GET /runs/{run_id}` returns `child_runs` alongside `run` and `result`.
 - Result payload is the archived sandbox `result.json` contract.

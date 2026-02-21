@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { getChallenge, getRun, getRunLogs, getRunResult, terminateRun } from "@/api/endpoints";
+import { continueRun, getChallenge, getRun, getRunLogs, getRunResult, terminateRun } from "@/api/endpoints";
+import type { RunContinueRequest, RunContinuationType } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import { formatDateTime, isRunFinal } from "@/features/runs/utils";
 const MAX_LOG_BUFFER_BYTES = 8 * 1024 * 1024;
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const MAX_TEXT_PREVIEW = 2000;
+const CONTINUATION_TYPE_OPTIONS: RunContinuationType[] = ["hint", "deliverable_fix", "strategy_change", "other"];
 
 type JsonObject = Record<string, unknown>;
 
@@ -103,12 +105,20 @@ function renderParsedLogs(rawLogs: string): string {
 }
 
 export function RunPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { runId } = useParams();
   const [rawLogs, setRawLogs] = useState("");
   const [offset, setOffset] = useState(0);
   const [sseFailed, setSseFailed] = useState(false);
   const [logMode, setLogMode] = useState<"parsed" | "raw">("parsed");
+  const [showContinuationForm, setShowContinuationForm] = useState(false);
+  const [continuationMessage, setContinuationMessage] = useState("");
+  const [continuationType, setContinuationType] = useState<RunContinuationType>("hint");
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState("");
+  const [stopCriteriaOverride, setStopCriteriaOverride] = useState("");
+  const [reuseParentArtifacts, setReuseParentArtifacts] = useState(true);
+  const [continuationError, setContinuationError] = useState<string | null>(null);
 
   const runQuery = useQuery({
     queryKey: ["run", runId],
@@ -132,6 +142,19 @@ export function RunPage() {
       void queryClient.invalidateQueries({ queryKey: ["run", runId] });
       void queryClient.invalidateQueries({ queryKey: ["run-result", runId] });
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+  const continuationMutation = useMutation({
+    mutationFn: async (payload: RunContinueRequest) => continueRun(runId ?? "", payload),
+    onSuccess: (childRun) => {
+      setShowContinuationForm(false);
+      setContinuationMessage("");
+      setTimeLimitSeconds("");
+      setStopCriteriaOverride("");
+      setContinuationError(null);
+      void queryClient.invalidateQueries({ queryKey: ["run", runId] });
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+      void navigate(`/runs/${childRun.id}`);
     },
   });
 
@@ -242,10 +265,13 @@ export function RunPage() {
   const challengeName = challengeQuery.data?.name ?? resultQuery.data?.challenge_name;
   const ctfName = challengeQuery.data?.ctf_name;
   const challengeDisplay = [challengeName, ctfName].filter((value): value is string => Boolean(value)).join(" / ");
+  const childRuns = runQuery.data?.child_runs ?? [];
+  const parentRunId = runMeta?.parent_run_id;
   const details = useMemo(
     () => [
       ["Challenge / CTF", challengeDisplay || runMeta?.challenge_id || "-"],
       ["Backend", runMeta?.backend ?? "-"],
+      ["Continuation depth", String(runMeta?.continuation_depth ?? 0)],
       ["Reasoning", String((runMeta?.budgets as Record<string, unknown> | undefined)?.reasoning_effort ?? "medium")],
       ["Budget (minutes)", String((runMeta?.budgets as Record<string, unknown> | undefined)?.max_minutes ?? 30)],
       ["Started", formatDateTime(runMeta?.started_at)],
@@ -285,6 +311,18 @@ export function RunPage() {
                 Force stop
               </Button>
             ) : null}
+            {terminal ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-8 px-3 text-xs"
+                onClick={() => {
+                  setShowContinuationForm((current) => !current);
+                }}
+              >
+                Continue run
+              </Button>
+            ) : null}
             <Badge status={status}>{status ?? "loading"}</Badge>
           </div>
         </div>
@@ -301,6 +339,166 @@ export function RunPage() {
             </div>
           ))}
         </dl>
+
+        {parentRunId || childRuns.length > 0 ? (
+          <div className="mt-4 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Lineage</p>
+            {parentRunId ? (
+              <p>
+                Parent run:{" "}
+                <Link className="font-semibold text-accent hover:underline" to={`/runs/${parentRunId}`}>
+                  {parentRunId.slice(0, 8)}
+                </Link>
+              </p>
+            ) : (
+              <p>Parent run: none</p>
+            )}
+            <div>
+              Child runs:{" "}
+              {childRuns.length === 0
+                ? "none"
+                : childRuns.map((childRun) => (
+                    <Link key={childRun.id} className="mr-2 font-semibold text-accent hover:underline" to={`/runs/${childRun.id}`}>
+                      {childRun.id.slice(0, 8)}
+                    </Link>
+                  ))}
+            </div>
+          </div>
+        ) : null}
+
+        {showContinuationForm ? (
+          <div className="mt-4 space-y-3 rounded-md border border-slate-200 p-3">
+            <h3 className="text-sm font-semibold">Continue this run</h3>
+            <label className="block space-y-1 text-xs text-slate-700">
+              <span>Message</span>
+              <textarea
+                className="w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+                rows={4}
+                value={continuationMessage}
+                onChange={(event) => {
+                  setContinuationMessage(event.target.value);
+                }}
+                placeholder="Describe what to fix or try next..."
+              />
+            </label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="block space-y-1 text-xs text-slate-700">
+                <span>Type</span>
+                <select
+                  className="w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+                  value={continuationType}
+                  onChange={(event) => {
+                    setContinuationType(event.target.value as RunContinuationType);
+                  }}
+                >
+                  {CONTINUATION_TYPE_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1 text-xs text-slate-700">
+                <span>Time limit override (seconds)</span>
+                <input
+                  type="number"
+                  min={60}
+                  className="w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+                  value={timeLimitSeconds}
+                  onChange={(event) => {
+                    setTimeLimitSeconds(event.target.value);
+                  }}
+                  placeholder="optional"
+                />
+              </label>
+            </div>
+            <label className="block space-y-1 text-xs text-slate-700">
+              <span>Stop criteria override (JSON object, optional)</span>
+              <textarea
+                className="w-full rounded-md border border-slate-300 px-2 py-2 font-mono text-xs"
+                rows={4}
+                value={stopCriteriaOverride}
+                onChange={(event) => {
+                  setStopCriteriaOverride(event.target.value);
+                }}
+                placeholder='{"secondary":{"config":{"required_files":["README.md","solve.py"]}}}'
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={reuseParentArtifacts}
+                onChange={(event) => {
+                  setReuseParentArtifacts(event.target.checked);
+                }}
+              />
+              Reuse parent artifacts/context
+            </label>
+            {continuationError ? <p className="text-xs text-danger">{continuationError}</p> : null}
+            {continuationMutation.isError ? <p className="text-xs text-danger">Failed to create continuation run.</p> : null}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                className="h-8 px-3 text-xs"
+                disabled={continuationMutation.isPending}
+                onClick={() => {
+                  const message = continuationMessage.trim();
+                  if (!message) {
+                    setContinuationError("Message is required.");
+                    return;
+                  }
+                  let parsedStopCriteria: Record<string, unknown> | undefined;
+                  const rawStop = stopCriteriaOverride.trim();
+                  if (rawStop) {
+                    try {
+                      const parsed = JSON.parse(rawStop);
+                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                        setContinuationError("Stop criteria override must be a JSON object.");
+                        return;
+                      }
+                      parsedStopCriteria = parsed as Record<string, unknown>;
+                    } catch {
+                      setContinuationError("Stop criteria override is not valid JSON.");
+                      return;
+                    }
+                  }
+
+                  const payload: RunContinueRequest = {
+                    message,
+                    type: continuationType,
+                    reuse_parent_artifacts: reuseParentArtifacts,
+                  };
+                  if (timeLimitSeconds.trim()) {
+                    const parsed = Number.parseInt(timeLimitSeconds, 10);
+                    if (Number.isNaN(parsed) || parsed < 60) {
+                      setContinuationError("Time limit override must be at least 60 seconds.");
+                      return;
+                    }
+                    payload.time_limit_seconds = parsed;
+                  }
+                  if (parsedStopCriteria) {
+                    payload.stop_criteria_override = parsedStopCriteria;
+                  }
+
+                  setContinuationError(null);
+                  continuationMutation.mutate(payload);
+                }}
+              >
+                Start continuation
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-3 text-xs"
+                onClick={() => {
+                  setShowContinuationForm(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Card>
 
       <Card>

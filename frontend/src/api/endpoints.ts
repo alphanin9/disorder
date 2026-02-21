@@ -14,6 +14,7 @@ import type {
   CTFdSyncResponse,
   CTFListResponse,
   CTFUpdateRequest,
+  RunContinueRequest,
   RunCreateRequest,
   RunListResponse,
   RunLogsResponse,
@@ -145,6 +146,13 @@ export async function deleteRun(runId: string): Promise<void> {
 export async function terminateRun(runId: string): Promise<RunStatusResponse> {
   return apiRequest<RunStatusResponse>(`/runs/${runId}/terminate`, {
     method: "POST",
+  });
+}
+
+export async function continueRun(runId: string, payload: RunContinueRequest): Promise<RunRead> {
+  return apiRequest<RunRead>(`/runs/${runId}/continue`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

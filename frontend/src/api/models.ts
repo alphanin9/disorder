@@ -10,10 +10,30 @@ export type RunCreateRequest = BaseRunCreateRequest & {
     max_commands?: number | null;
   } | null;
 };
-export type RunRead = components["schemas"]["RunRead"];
+export type RunContinuationType = "hint" | "deliverable_fix" | "strategy_change" | "other";
+type BaseRunRead = components["schemas"]["RunRead"];
+export type RunRead = BaseRunRead & {
+  parent_run_id?: string | null;
+  continuation_depth?: number;
+  continuation_input?: string | null;
+  continuation_type?: RunContinuationType | null;
+};
 export type RunListResponse = { items: RunRead[] };
-export type RunStatusResponse = components["schemas"]["RunStatusResponse"];
+type BaseRunResultRead = components["schemas"]["RunResultRead"];
+export type RunResultRead = BaseRunResultRead;
+export type RunStatusResponse = {
+  run: RunRead;
+  result?: RunResultRead | null;
+  child_runs?: RunRead[];
+};
 export type RunLogsResponse = components["schemas"]["RunLogsResponse"];
+export type RunContinueRequest = {
+  message: string;
+  type?: RunContinuationType | null;
+  time_limit_seconds?: number | null;
+  stop_criteria_override?: Record<string, unknown> | null;
+  reuse_parent_artifacts?: boolean;
+};
 export type CTF = components["schemas"]["CTFRead"];
 export type CTFListResponse = components["schemas"]["CTFListResponse"];
 export type CTFCreateRequest = components["schemas"]["CTFCreateRequest"];

@@ -34,6 +34,8 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 5. Inspect outputs:
    - `python -m cli logs <run_id>`
    - `python -m cli result <run_id>`
+   - Continue a completed run:
+     - `python -m cli runs continue <parent_run_id> --message "refine exploit for PIE"`
 6. One-command demo flow (seed + run + print result):
    - `make demo`
 
