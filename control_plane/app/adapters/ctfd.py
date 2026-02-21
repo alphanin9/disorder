@@ -7,8 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-
-URL_RE = re.compile(r"https?://[^\s\]\)>'\"]+")
+URL_RE = re.compile(r"https?://[^\s\]\)>'\"`]+")
 NC_RE = re.compile(r"\bnc\s+([A-Za-z0-9._-]+)\s+(\d{1,5})\b")
 TAG_RE = re.compile(r"<[^>]+>")
 BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -163,7 +162,9 @@ def extract_file_entries(challenge_payload: dict) -> list[dict]:
         )
         if not file_url:
             continue
-        file_name = str(file_entry.get("name") or file_url.split("/")[-1] or "artifact.bin")
+        file_name = str(
+            file_entry.get("name") or file_url.split("/")[-1] or "artifact.bin"
+        )
         entries.append({"name": file_name, "url": file_url})
 
     return entries
