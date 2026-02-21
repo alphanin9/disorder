@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
+
+from control_plane.app.orchestrator.docker_runner import DockerRunner
+
+
+def test_sandbox_continuation_volume_mounts_existing_context_dir(tmp_path: Path) -> None:
+    runner = DockerRunner.__new__(DockerRunner)
+    run = SimpleNamespace(
+        id=uuid4(),
+        paths={"continuation_mount": "/workspace/continuation"},
+    )
+
+    host_run_dir = tmp_path / "run"
+    (host_run_dir / "continuation").mkdir(parents=True)
+
+    volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
+    assert str(host_run_dir / "continuation") in volumes
+    assert volumes[str(host_run_dir / "continuation")] == {"bind": "/workspace/continuation", "mode": "ro"}
+
+
+def test_sandbox_continuation_volume_ignores_missing_context_dir(tmp_path: Path) -> None:
+    runner = DockerRunner.__new__(DockerRunner)
+    run = SimpleNamespace(
+        id=uuid4(),
+        paths={"continuation_mount": "/workspace/continuation"},
+    )
+
+    host_run_dir = tmp_path / "run"
+    host_run_dir.mkdir(parents=True)
+
+    volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
+    assert volumes == {}
+
+
+def test_build_spec_payload_includes_continuation_metadata() -> None:
+    runner = DockerRunner.__new__(DockerRunner)
+    run = SimpleNamespace(
+        id=uuid4(),
+        challenge_id=uuid4(),
+        backend="codex",
+        budgets={"reasoning_effort": "high", "max_minutes": 45},
+        stop_criteria={"primary": {"type": "FLAG_FOUND", "config": {"regex": "flag\\{.*?\\}"}}},
+        allowed_endpoints=[],
+        paths={"chal_mount": "/workspace/chal", "run_mount": "/workspace/run", "continuation_mount": "/workspace/continuation"},
+        local_deploy={"enabled": False, "network": None, "endpoints": []},
+        parent_run_id=uuid4(),
+        continuation_depth=2,
+        continuation_input="operator hint",
+        continuation_type="hint",
+    )
+    challenge = SimpleNamespace(
+        name="Warmup",
+        category="misc",
+        points=50,
+        description_md="Desc",
+    )
+
+    spec = runner._build_spec_payload(run=run, challenge=challenge)
+    assert spec["continuation"]["is_continuation"] is True
+    assert spec["continuation"]["type"] == "hint"
+    assert spec["continuation"]["depth"] == 2
+    assert spec["continuation"]["mount_path"] == "/workspace/continuation"

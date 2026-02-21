@@ -16,6 +16,7 @@ from control_plane.app.db.models import ChallengeManifest, RunResult
 from control_plane.app.db.session import get_db
 from control_plane.app.orchestrator.docker_runner import DockerRunner
 from control_plane.app.schemas.run import (
+    RunContinueRequest,
     RunCreateRequest,
     RunListResponse,
     RunLogsResponse,
@@ -24,7 +25,14 @@ from control_plane.app.schemas.run import (
     RunStatusResponse,
 )
 from control_plane.app.services.delete_service import delete_run
-from control_plane.app.services.run_service import create_run, get_run_or_none, list_runs
+from control_plane.app.services.run_service import (
+    RunContinuationError,
+    create_continuation_run,
+    create_run,
+    get_run_or_none,
+    list_child_runs,
+    list_runs,
+)
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import run_result_object_keys
 
@@ -82,6 +90,22 @@ def start_run(request: RunCreateRequest, db: Session = Depends(get_db)) -> RunRe
     return RunRead.model_validate(run, from_attributes=True)
 
 
+@router.post("/{run_id}/continue", response_model=RunRead)
+def continue_run(run_id: UUID, request: RunContinueRequest, db: Session = Depends(get_db)) -> RunRead:
+    try:
+        run = create_continuation_run(
+            db,
+            parent_run_id=run_id,
+            request=request,
+            settings=settings,
+            blob_store=blob_store,
+        )
+    except RunContinuationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    get_orchestrator().launch_async(str(run.id))
+    return RunRead.model_validate(run, from_attributes=True)
+
+
 @router.get("", response_model=RunListResponse)
 def get_runs(
     status: list[str] | None = Query(default=None),
@@ -107,7 +131,12 @@ def get_run(run_id: UUID, db: Session = Depends(get_db)) -> RunStatusResponse:
 
     result = db.get(RunResult, run_id)
     result_schema = RunResultRead.model_validate(result, from_attributes=True) if result else None
-    return RunStatusResponse(run=RunRead.model_validate(run, from_attributes=True), result=result_schema)
+    child_runs = list_child_runs(db, run_id)
+    return RunStatusResponse(
+        run=RunRead.model_validate(run, from_attributes=True),
+        result=result_schema,
+        child_runs=[RunRead.model_validate(child_run, from_attributes=True) for child_run in child_runs],
+    )
 
 
 @router.get("/{run_id}/logs", response_model=RunLogsResponse)

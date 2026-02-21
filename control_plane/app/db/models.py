@@ -60,6 +60,10 @@ class Run(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     challenge_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("challenge_manifests.id", ondelete="CASCADE"), nullable=False)
+    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="RESTRICT"), nullable=True)
+    continuation_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    continuation_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    continuation_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     backend: Mapped[str] = mapped_column(String(32), nullable=False)
     budgets: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     stop_criteria: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -72,6 +76,8 @@ class Run(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     challenge: Mapped[ChallengeManifest] = relationship(back_populates="runs")
+    parent_run: Mapped["Run | None"] = relationship(remote_side=[id], back_populates="child_runs", foreign_keys=[parent_run_id])
+    child_runs: Mapped[list["Run"]] = relationship(back_populates="parent_run", foreign_keys=[parent_run_id])
     result: Mapped["RunResult | None"] = relationship(back_populates="run", uselist=False, cascade="all, delete-orphan")
 
 

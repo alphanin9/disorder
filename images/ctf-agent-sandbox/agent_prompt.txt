@@ -19,6 +19,9 @@ Requested reasoning effort:
 Known challenge/local endpoints:
 {allowed_endpoints}
 
+Continuation context:
+{continuation_context}
+
 Tooling guidance:
 {tooling_guide}
 
