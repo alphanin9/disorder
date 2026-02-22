@@ -9,36 +9,68 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
+WIRE_FORMAT_JSONL = "jsonl"
+WIRE_FORMAT_CONTENT_LENGTH = "content-length"
+_wire_format = WIRE_FORMAT_JSONL
 
 
 def _read_message() -> dict[str, Any] | None:
-    headers: dict[str, str] = {}
+    global _wire_format
+
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
             return None
         if line in {b"\r\n", b"\n"}:
-            break
-        header_line = line.decode("utf-8", errors="replace").strip()
-        if not header_line or ":" not in header_line:
             continue
-        name, value = header_line.split(":", 1)
-        headers[name.strip().lower()] = value.strip()
 
-    length_raw = headers.get("content-length")
-    if not length_raw:
-        return None
-    length = int(length_raw)
-    body = sys.stdin.buffer.read(length)
-    if not body:
-        return None
-    return json.loads(body.decode("utf-8"))
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # Codex CLI uses JSON-RPC over newline-delimited UTF-8 JSON on stdio.
+        if stripped.startswith((b"{", b"[")):
+            _wire_format = WIRE_FORMAT_JSONL
+            return json.loads(stripped.decode("utf-8"))
+
+        # Backward-compatible support for Content-Length framing.
+        if b":" in stripped:
+            headers: dict[str, str] = {}
+
+            def _capture_header(raw_line: bytes) -> None:
+                header_line = raw_line.decode("utf-8", errors="replace").strip()
+                if not header_line or ":" not in header_line:
+                    return
+                name, value = header_line.split(":", 1)
+                headers[name.strip().lower()] = value.strip()
+
+            _capture_header(line)
+            while True:
+                header_line = sys.stdin.buffer.readline()
+                if not header_line:
+                    return None
+                if header_line in {b"\r\n", b"\n"}:
+                    break
+                _capture_header(header_line)
+
+            length_raw = headers.get("content-length")
+            if not length_raw:
+                continue
+            length = int(length_raw)
+            body = sys.stdin.buffer.read(length)
+            if not body:
+                return None
+            _wire_format = WIRE_FORMAT_CONTENT_LENGTH
+            return json.loads(body.decode("utf-8"))
 
 
 def _write_message(payload: dict[str, Any]) -> None:
     encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    sys.stdout.buffer.write(f"Content-Length: {len(encoded)}\r\n\r\n".encode("ascii"))
-    sys.stdout.buffer.write(encoded)
+    if _wire_format == WIRE_FORMAT_CONTENT_LENGTH:
+        sys.stdout.buffer.write(f"Content-Length: {len(encoded)}\r\n\r\n".encode("ascii"))
+        sys.stdout.buffer.write(encoded)
+    else:
+        sys.stdout.buffer.write(encoded + b"\n")
     sys.stdout.buffer.flush()
 
 
