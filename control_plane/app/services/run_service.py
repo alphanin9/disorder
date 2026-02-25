@@ -220,20 +220,24 @@ def create_continuation_run(
         started_at=datetime.now(timezone.utc),
     )
     db.add(child_run)
-    db.commit()
+    try:
+        if request.reuse_parent_artifacts:
+            db.flush()
+            parent_result = db.get(RunResult, parent_run.id)
+            create_continuation_context_bundle(
+                parent_run=parent_run,
+                parent_result=parent_result,
+                child_run=child_run,
+                request=request,
+                settings=settings,
+                blob_store=blob_store,
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(child_run)
-
-    if request.reuse_parent_artifacts:
-        parent_result = db.get(RunResult, parent_run.id)
-        create_continuation_context_bundle(
-            parent_run=parent_run,
-            parent_result=parent_result,
-            child_run=child_run,
-            request=request,
-            settings=settings,
-            blob_store=blob_store,
-        )
-
     return child_run
 
 

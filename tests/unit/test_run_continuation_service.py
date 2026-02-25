@@ -26,6 +26,9 @@ class _FakeSession:
         self.parent_run = parent_run
         self.parent_result = parent_result
         self.child_run: Run | None = None
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.flush_calls = 0
 
     def get(self, model, key):
         if model is Run and key == self.parent_run.id:
@@ -41,8 +44,16 @@ class _FakeSession:
     def add(self, obj) -> None:
         self.child_run = obj
 
+    def flush(self) -> None:
+        self.flush_calls += 1
+        if self.child_run is not None and getattr(self.child_run, "id", None) is None:
+            self.child_run.id = uuid4()
+
     def commit(self) -> None:
-        return
+        self.commit_calls += 1
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
 
     def refresh(self, obj) -> None:
         if getattr(obj, "id", None) is None:
@@ -138,6 +149,9 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
     assert (context_dir / "parent_readme.md").exists()
     request_payload = json.loads((context_dir / "continuation_request.json").read_text(encoding="utf-8"))
     assert request_payload["message"] == "recheck stack canary with pwndbg"
+    assert session.commit_calls == 1
+    assert session.rollback_calls == 0
+    assert session.flush_calls == 1
 
 
 def test_create_continuation_run_rejects_non_terminal_parent(tmp_path) -> None:
@@ -248,3 +262,58 @@ def test_create_continuation_run_rejects_long_message(tmp_path) -> None:
             settings=settings,
             blob_store=_FakeBlobStore(result_payload={}),
         )
+
+
+def test_create_continuation_run_rolls_back_when_context_bundle_write_fails(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    challenge = ChallengeManifest(
+        id=uuid4(),
+        ctf_id=uuid4(),
+        platform="manual",
+        platform_challenge_id="chal-1",
+        name="Warmup",
+        category="misc",
+        points=100,
+        description_md="desc",
+        description_raw=None,
+        artifacts=[],
+        remote_endpoints=[],
+        local_deploy_hints={},
+        flag_regex=None,
+    )
+    parent_run = _make_parent_run(challenge.id)
+    parent_result = RunResult(
+        run_id=parent_run.id,
+        status="deliverable_produced",
+        result_json_object_key="runs/parent/result.json",
+        logs_object_key="runs/parent/logs.txt",
+        started_at=parent_run.started_at,
+        finished_at=datetime.now(timezone.utc),
+    )
+    session = _FakeSession(challenge=challenge, parent_run=parent_run, parent_result=parent_result)
+    settings = SimpleNamespace(
+        enable_run_continuation=True,
+        max_continuation_message_chars=500,
+        max_continuation_depth=3,
+        runs_dir=tmp_path,
+    )
+
+    def _raise_bundle_error(**_kwargs) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        "control_plane.app.services.run_service.create_continuation_context_bundle",
+        _raise_bundle_error,
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        create_continuation_run(
+            session,
+            parent_run_id=parent_run.id,
+            request=RunContinueRequest(message="retry", reuse_parent_artifacts=True),
+            settings=settings,
+            blob_store=_FakeBlobStore(result_payload={}),
+        )
+
+    assert session.flush_calls == 1
+    assert session.commit_calls == 0
+    assert session.rollback_calls == 1

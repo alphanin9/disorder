@@ -9,13 +9,16 @@ from control_plane.app.orchestrator.docker_runner import DockerRunner
 
 def test_sandbox_continuation_volume_mounts_existing_context_dir(tmp_path: Path) -> None:
     runner = DockerRunner.__new__(DockerRunner)
+    runner.settings = SimpleNamespace(runs_dir=tmp_path)
     run = SimpleNamespace(
         id=uuid4(),
         paths={"continuation_mount": "/workspace/continuation"},
     )
 
     host_run_dir = tmp_path / "run"
+    local_run_dir = tmp_path / str(run.id)
     (host_run_dir / "continuation").mkdir(parents=True)
+    (local_run_dir / "continuation").mkdir(parents=True)
 
     volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
     assert str(host_run_dir / "continuation") in volumes
@@ -24,6 +27,7 @@ def test_sandbox_continuation_volume_mounts_existing_context_dir(tmp_path: Path)
 
 def test_sandbox_continuation_volume_ignores_missing_context_dir(tmp_path: Path) -> None:
     runner = DockerRunner.__new__(DockerRunner)
+    runner.settings = SimpleNamespace(runs_dir=tmp_path)
     run = SimpleNamespace(
         id=uuid4(),
         paths={"continuation_mount": "/workspace/continuation"},
@@ -34,6 +38,25 @@ def test_sandbox_continuation_volume_ignores_missing_context_dir(tmp_path: Path)
 
     volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
     assert volumes == {}
+
+
+def test_sandbox_continuation_volume_allows_daemon_only_host_path_when_local_context_exists(tmp_path: Path) -> None:
+    runner = DockerRunner.__new__(DockerRunner)
+    runner.settings = SimpleNamespace(runs_dir=tmp_path)
+    run = SimpleNamespace(
+        id=uuid4(),
+        paths={"continuation_mount": "/workspace/continuation"},
+    )
+
+    (tmp_path / str(run.id) / "continuation").mkdir(parents=True)
+    daemon_only_host_run_dir = Path("/run/desktop/mnt/host/g/repo/runs") / str(run.id)
+
+    volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=daemon_only_host_run_dir)
+    assert str(daemon_only_host_run_dir / "continuation") in volumes
+    assert volumes[str(daemon_only_host_run_dir / "continuation")] == {
+        "bind": "/workspace/continuation",
+        "mode": "ro",
+    }
 
 
 def test_build_spec_payload_includes_continuation_metadata() -> None:

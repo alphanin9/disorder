@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -119,6 +119,12 @@ export function RunPage() {
   const [stopCriteriaOverride, setStopCriteriaOverride] = useState("");
   const [reuseParentArtifacts, setReuseParentArtifacts] = useState(true);
   const [continuationError, setContinuationError] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    setRawLogs("");
+    setOffset(0);
+    setSseFailed(false);
+  }, [runId]);
 
   const runQuery = useQuery({
     queryKey: ["run", runId],

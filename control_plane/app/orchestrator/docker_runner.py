@@ -466,10 +466,11 @@ class DockerRunner:
         if not mount_path:
             return {}
 
+        local_path = self.settings.runs_dir / str(run.id) / "continuation"
         host_path = host_run_dir / "continuation"
-        if not host_path.exists() or not host_path.is_dir():
+        if not local_path.exists() or not local_path.is_dir():
             print(
-                f"[orchestrator] continuation mount requested for run {run.id} but path is missing: {host_path}",
+                f"[orchestrator] continuation mount requested for run {run.id} but local context path is missing: {local_path}",
                 flush=True,
             )
             return {}

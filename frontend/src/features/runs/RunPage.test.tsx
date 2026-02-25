@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 
 import { RunPage } from "@/features/runs/RunPage";
 
@@ -172,6 +172,74 @@ describe("RunPage", () => {
     expect(await screen.findByText(/Run 7d2d5201/i)).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /Continue run/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("resets log polling offset when navigating to another run", async () => {
+    const logRequests: Array<{ runId: string; offset: number }> = [];
+
+    server.use(
+      http.get("http://localhost/api/runs/:run_id/logs", ({ params, request }) => {
+        const url = new URL(request.url);
+        const offset = Number(url.searchParams.get("offset") ?? "0");
+        const runId = String(params.run_id);
+        logRequests.push({ runId, offset });
+        return HttpResponse.json({
+          run_id: runId,
+          offset,
+          next_offset: runId.startsWith("7d2d") ? 5 : 0,
+          eof: true,
+          logs: "",
+        });
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          refetchInterval: false,
+        },
+      },
+    });
+
+    function TestShell() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button type="button" onClick={() => navigate("/runs/f3325e1f-0a77-42fc-a8e0-607fcfcb00f2")}>
+            Navigate
+          </button>
+          <Routes>
+            <Route path="/runs/:runId" element={<RunPage />} />
+          </Routes>
+        </>
+      );
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}>
+          <TestShell />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/Run 7d2d5201/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(logRequests).toContainEqual({
+        runId: "7d2d5201-08e5-4450-bbe3-0d27d2916659",
+        offset: 0,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Navigate" }));
+
+    await waitFor(() => {
+      expect(logRequests).toContainEqual({
+        runId: "f3325e1f-0a77-42fc-a8e0-607fcfcb00f2",
+        offset: 0,
+      });
     });
   });
 });
