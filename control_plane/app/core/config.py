@@ -6,14 +6,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     app_name: str = "ctf-harness-control-plane"
     app_env: str = Field(default="dev")
     app_host: str = Field(default="0.0.0.0")
     app_port: int = Field(default=8000)
 
-    database_url: str = Field(default="postgresql+psycopg://ctf:ctf@postgres:5432/ctf_harness")
+    database_url: str = Field(
+        default="postgresql+psycopg://ctf:ctf@postgres:5432/ctf_harness"
+    )
 
     minio_endpoint: str = Field(default="http://minio:9000")
     minio_access_key: str = Field(default="minio")
@@ -56,7 +60,7 @@ class Settings(BaseSettings):
     codex_auth_encryption_key: str | None = Field(default=None)
     codex_auth_max_file_bytes: int = Field(default=262_144)
     ctfd_auto_submit_enabled: bool = Field(default=True)
-    ctfd_auto_submit_max_attempts_per_run: int = Field(default=1)
+    ctfd_auto_submit_max_attempts_per_run: int = Field(default=8)
     ctfd_auto_submit_retry_count: int = Field(default=0)
     discord_webhook_url: str | None = Field(default=None)
     discord_notify_on_flag: bool = Field(default=True)
