@@ -77,10 +77,11 @@ WORKDIR /workspace
 
 COPY agent_runner.py /usr/local/bin/agent_runner.py
 COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
+COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
 COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
 COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
 
-RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py
+RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/flag_submit_mcp.py
 
 USER ctf
 

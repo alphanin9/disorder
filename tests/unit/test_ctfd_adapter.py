@@ -67,3 +67,34 @@ def test_ctfd_client_supports_session_cookie_auth() -> None:
             assert challenges == []
         finally:
             client.close()
+
+
+def test_ctfd_client_session_cookie_submit_flag_fetches_csrf_nonce_from_bootstrap() -> None:
+    with respx.mock(assert_all_called=True) as mock_router:
+        mock_router.get("https://ctfd.local/").mock(
+            return_value=httpx.Response(
+                200,
+                text=(
+                    "<html><script>"
+                    "window.init = {'urlRoot': '', 'csrfNonce': 'nonce-123'};"
+                    "</script></html>"
+                ),
+            )
+        )
+
+        def submit_handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers.get("Cookie") == "session=abc123"
+            assert request.headers.get("CSRF-Token") == "nonce-123"
+            assert request.headers.get("X-CSRF-Token") == "nonce-123"
+            assert request.headers.get("Referer") == "https://ctfd.local/"
+            assert request.headers.get("Origin") == "https://ctfd.local"
+            return httpx.Response(200, json={"data": {"status": "correct"}})
+
+        mock_router.post("https://ctfd.local/api/v1/challenges/attempt").mock(side_effect=submit_handler)
+
+        client = CTFdClient(base_url="https://ctfd.local", session_cookie="abc123")
+        try:
+            verify = client.submit_flag("1", "flag{demo}")
+            assert verify["status"] == "correct"
+        finally:
+            client.close()

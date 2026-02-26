@@ -118,6 +118,18 @@ def test_write_managed_codex_mcp_config_can_disable_flag_verify(monkeypatch, tmp
         assert "[mcp_servers.flag_verify]" not in config_path.read_text(encoding="utf-8")
 
 
+def test_write_managed_codex_mcp_config_can_enable_flag_submit(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FLAG_SUBMIT_MCP_ENABLED", "1")
+
+    module._write_managed_codex_mcp_config()
+    rendered = (codex_home / "config.toml").read_text(encoding="utf-8")
+    assert "[mcp_servers.flag_submit]" in rendered
+    assert 'args = ["/usr/local/bin/flag_submit_mcp.py", "--spec", "/workspace/run/spec.json"]' in rendered
+
+
 def test_write_managed_codex_mcp_config_includes_ida_url(monkeypatch, tmp_path) -> None:
     module = _load_agent_runner_module()
     codex_home = tmp_path / "codex-home"

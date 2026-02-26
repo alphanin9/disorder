@@ -17,6 +17,19 @@ class IntegrationConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class CTFIntegrationConfig(Base):
+    __tablename__ = "ctf_integration_configs"
+    __table_args__ = (UniqueConstraint("ctf_id", "provider", name="uq_ctf_integration_provider"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ctf_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ctf_events.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    ctf: Mapped["CTFEvent"] = relationship(back_populates="integration_configs")
+
+
 class CTFEvent(Base):
     __tablename__ = "ctf_events"
 
@@ -30,11 +43,15 @@ class CTFEvent(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     challenges: Mapped[list["ChallengeManifest"]] = relationship(back_populates="ctf")
+    integration_configs: Mapped[list["CTFIntegrationConfig"]] = relationship(
+        back_populates="ctf",
+        cascade="all, delete-orphan",
+    )
 
 
 class ChallengeManifest(Base):
     __tablename__ = "challenge_manifests"
-    __table_args__ = (UniqueConstraint("platform", "platform_challenge_id", name="uq_platform_challenge_id"),)
+    __table_args__ = (UniqueConstraint("ctf_id", "platform", "platform_challenge_id", name="uq_ctf_platform_challenge_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     ctf_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ctf_events.id", ondelete="RESTRICT"), nullable=False)
@@ -53,6 +70,10 @@ class ChallengeManifest(Base):
 
     ctf: Mapped[CTFEvent] = relationship(back_populates="challenges")
     runs: Mapped[list["Run"]] = relationship(back_populates="challenge", cascade="all, delete-orphan")
+    flag_submissions: Mapped[list["FlagSubmissionAttempt"]] = relationship(
+        back_populates="challenge",
+        cascade="all, delete-orphan",
+    )
 
 
 class Run(Base):
@@ -79,6 +100,10 @@ class Run(Base):
     parent_run: Mapped["Run | None"] = relationship(remote_side=[id], back_populates="child_runs", foreign_keys=[parent_run_id])
     child_runs: Mapped[list["Run"]] = relationship(back_populates="parent_run", foreign_keys=[parent_run_id])
     result: Mapped["RunResult | None"] = relationship(back_populates="run", uselist=False, cascade="all, delete-orphan")
+    flag_submissions: Mapped[list["FlagSubmissionAttempt"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
 
 
 class RunResult(Base):
@@ -92,3 +117,23 @@ class RunResult(Base):
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     run: Mapped[Run] = relationship(back_populates="result")
+
+
+class FlagSubmissionAttempt(Base):
+    __tablename__ = "flag_submission_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
+    challenge_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("challenge_manifests.id", ondelete="CASCADE"), nullable=False)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    auth_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    submission_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    verdict_normalized: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    response_payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    run: Mapped[Run] = relationship(back_populates="flag_submissions")
+    challenge: Mapped[ChallengeManifest] = relationship(back_populates="flag_submissions")

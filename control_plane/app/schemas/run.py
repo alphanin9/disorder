@@ -92,6 +92,47 @@ class RunResultRead(BaseModel):
     finished_at: datetime
 
 
+class RunFlagSubmissionAttemptRead(BaseModel):
+    id: UUID
+    run_id: UUID
+    challenge_id: UUID
+    platform: str
+    auth_mode: str | None = None
+    submission_hash: str
+    verdict_normalized: str
+    http_status: int | None = None
+    error_message: str | None = None
+    submitted_at: datetime
+
+
+class RunFlagSubmissionListResponse(BaseModel):
+    items: list[RunFlagSubmissionAttemptRead]
+
+
+class RunFlagSubmitRequest(BaseModel):
+    flag: str = Field(min_length=1)
+
+    @field_validator("flag")
+    @classmethod
+    def validate_flag(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("flag cannot be empty")
+        return normalized
+
+
+class RunFlagVerificationRead(BaseModel):
+    method: str
+    verified: bool
+    details: str
+
+
+class RunFlagSubmitResponse(BaseModel):
+    run_id: UUID
+    challenge_id: UUID
+    flag_verification: RunFlagVerificationRead
+
+
 class RunStatusResponse(BaseModel):
     run: RunRead
     result: RunResultRead | None = None

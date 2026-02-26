@@ -16,6 +16,10 @@ from control_plane.app.db.models import ChallengeManifest, RunResult
 from control_plane.app.db.session import get_db
 from control_plane.app.orchestrator.docker_runner import DockerRunner
 from control_plane.app.schemas.run import (
+    RunFlagSubmissionAttemptRead,
+    RunFlagSubmissionListResponse,
+    RunFlagSubmitRequest,
+    RunFlagSubmitResponse,
     RunContinueRequest,
     RunCreateRequest,
     RunListResponse,
@@ -25,6 +29,7 @@ from control_plane.app.schemas.run import (
     RunStatusResponse,
 )
 from control_plane.app.services.delete_service import delete_run
+from control_plane.app.services.flag_submission_service import build_flag_verification, list_run_flag_submission_attempts
 from control_plane.app.services.run_service import (
     RunContinuationError,
     create_continuation_run,
@@ -233,6 +238,55 @@ def get_run_result_payload(run_id: UUID, db: Session = Depends(get_db)) -> dict:
     import json
 
     return json.loads(raw.decode("utf-8"))
+
+
+@router.get("/{run_id}/submissions", response_model=RunFlagSubmissionListResponse)
+def get_run_submissions(run_id: UUID, db: Session = Depends(get_db)) -> RunFlagSubmissionListResponse:
+    run = get_run_or_none(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    items = list_run_flag_submission_attempts(db, run_id)
+    return RunFlagSubmissionListResponse(
+        items=[RunFlagSubmissionAttemptRead.model_validate(item, from_attributes=True) for item in items]
+    )
+
+
+@router.post("/{run_id}/submit-flag", response_model=RunFlagSubmitResponse)
+def submit_run_flag(
+    run_id: UUID,
+    request: RunFlagSubmitRequest,
+    db: Session = Depends(get_db),
+) -> RunFlagSubmitResponse:
+    run = get_run_or_none(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    challenge = db.get(ChallengeManifest, run.challenge_id)
+    if challenge is None:
+        raise HTTPException(status_code=404, detail="challenge not found")
+
+    regex = challenge.flag_regex or (challenge.ctf.default_flag_regex if challenge.ctf else None)
+    try:
+        verification = build_flag_verification(
+            db,
+            run_id=run.id,
+            challenge=challenge,
+            flag=request.flag,
+            regex=regex,
+        )
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    return RunFlagSubmitResponse(
+        run_id=run.id,
+        challenge_id=challenge.id,
+        flag_verification=verification,
+    )
 
 
 @router.delete("/{run_id}", status_code=204)

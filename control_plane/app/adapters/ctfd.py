@@ -11,6 +11,8 @@ URL_RE = re.compile(r"https?://[^\s\]\)>'\"`]+")
 NC_RE = re.compile(r"\bnc\s+([A-Za-z0-9._-]+)\s+(\d{1,5})\b")
 TAG_RE = re.compile(r"<[^>]+>")
 BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+CSRF_NONCE_BOOTSTRAP_RE = re.compile(r"""['"]csrfNonce['"]\s*:\s*['"](?P<token>[^'"]+)['"]""")
+CSRF_META_RE = re.compile(r"""<meta[^>]+name=['"]csrf-token['"][^>]+content=['"](?P<token>[^'"]+)['"]""", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -34,6 +36,7 @@ class CTFdClient:
         self.session_cookie = session_cookie
         self.timeout = timeout
         headers: dict[str, str] = {}
+        self._csrf_nonce: str | None = None
 
         if self.api_token:
             headers["Authorization"] = f"Token {self.api_token}"
@@ -80,16 +83,58 @@ class CTFdClient:
         return response.content
 
     def submit_flag(self, challenge_id: str, submission: str) -> dict:
+        headers: dict[str, str] | None = None
+        if self.session_cookie:
+            headers = self._session_csrf_headers()
+
         response = self._client.post(
             f"{self.base_url}/api/v1/challenges/attempt",
             json={"challenge_id": challenge_id, "submission": submission},
+            headers=headers,
         )
+        if self.session_cookie and response.status_code in {400, 403} and _looks_like_csrf_failure(response):
+            self._csrf_nonce = None
+            response = self._client.post(
+                f"{self.base_url}/api/v1/challenges/attempt",
+                json={"challenge_id": challenge_id, "submission": submission},
+                headers=self._session_csrf_headers(),
+            )
         response.raise_for_status()
         payload = response.json()
         data = payload.get("data")
         if isinstance(data, dict):
             return data
         return {"status": "unknown", "raw": data}
+
+    def _session_csrf_headers(self) -> dict[str, str]:
+        nonce = self._ensure_csrf_nonce()
+        parsed = urlparse(self.base_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else self.base_url
+        referer = f"{self.base_url}/"
+        return {
+            "CSRF-Token": nonce,
+            "X-CSRF-Token": nonce,
+            "Origin": origin,
+            "Referer": referer,
+        }
+
+    def _ensure_csrf_nonce(self) -> str:
+        if self.api_token:
+            raise ValueError("CSRF nonce should not be requested for API token auth")
+        if self._csrf_nonce:
+            return self._csrf_nonce
+
+        response = self._client.get(f"{self.base_url}/")
+        location = (response.headers.get("location") or "").lower()
+        if response.status_code in {301, 302, 303, 307, 308} and "/login" in location:
+            raise httpx.HTTPStatusError("CTFd session redirected to login", request=response.request, response=response)
+        response.raise_for_status()
+
+        nonce = _extract_csrf_nonce_from_response(response)
+        if not nonce:
+            raise ValueError("Unable to extract CTFd CSRF nonce from HTML bootstrap")
+        self._csrf_nonce = nonce
+        return nonce
 
 
 def _normalize_session_cookie(cookie_value: str) -> str:
@@ -99,6 +144,42 @@ def _normalize_session_cookie(cookie_value: str) -> str:
     if "=" in raw:
         return raw
     return f"session={raw}"
+
+
+def _extract_csrf_nonce_from_response(response: httpx.Response) -> str | None:
+    cookie_candidates = ["csrf_token", "csrf", "nonce"]
+    for name in cookie_candidates:
+        try:
+            cookie_value = response.cookies.get(name)
+        except Exception:
+            cookie_value = None
+        if cookie_value:
+            return str(cookie_value)
+
+    body = response.text
+    bootstrap_match = CSRF_NONCE_BOOTSTRAP_RE.search(body)
+    if bootstrap_match:
+        token = bootstrap_match.group("token").strip()
+        if token:
+            return token
+
+    meta_match = CSRF_META_RE.search(body)
+    if meta_match:
+        token = meta_match.group("token").strip()
+        if token:
+            return token
+    return None
+
+
+def _looks_like_csrf_failure(response: httpx.Response) -> bool:
+    body = ""
+    try:
+        body = response.text.lower()
+    except Exception:
+        body = ""
+    if "csrf" in body or "nonce" in body:
+        return True
+    return False
 
 
 def normalize_description(raw_description: str | None) -> str:

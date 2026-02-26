@@ -39,6 +39,18 @@ export type CTFListResponse = components["schemas"]["CTFListResponse"];
 export type CTFCreateRequest = components["schemas"]["CTFCreateRequest"];
 export type CTFUpdateRequest = components["schemas"]["CTFUpdateRequest"];
 export type CTFdConfigResponse = components["schemas"]["CTFdConfigResponse"];
+export type CTFdPerCtfConfigResponse = {
+  base_url: string;
+  configured: boolean;
+  preferred_auth_mode?: "session_cookie" | "api_token" | null;
+  has_api_token: boolean;
+  has_session_cookie: boolean;
+  stored_auth_modes: Array<"session_cookie" | "api_token">;
+  last_sync_auth_mode?: "session_cookie" | "api_token" | null;
+  last_submit_auth_mode?: "session_cookie" | "api_token" | null;
+  last_submit_status?: string | null;
+  updated_at?: string | null;
+};
 type BaseCTFdSyncRequest = components["schemas"]["CTFdSyncRequest"];
 export type CTFdSyncRequest = BaseCTFdSyncRequest & {
   auth_mode?: "session_cookie" | "api_token" | null;
@@ -47,6 +59,10 @@ export type CTFdSyncRequest = BaseCTFdSyncRequest & {
 export type CTFdSyncResponse = {
   synced: number;
   platform: string;
+  ctf_id: string;
+  ctf_slug: string;
+  auth_mode_used: "session_cookie" | "api_token";
+  stored_auth_modes: Array<"session_cookie" | "api_token">;
 };
 export type ChallengeCreateRequest = components["schemas"]["ChallengeCreateRequest"];
 export type ChallengeUpdateRequest = components["schemas"]["ChallengeUpdateRequest"];
@@ -89,4 +105,21 @@ export type RunResultPayload = {
   key_findings: string[];
   evidence: Array<{ kind: string; ref: string; summary: string }>;
   notes: string;
+};
+
+export type RunFlagSubmissionAttempt = {
+  id: string;
+  run_id: string;
+  challenge_id: string;
+  platform: string;
+  auth_mode?: string | null;
+  submission_hash: string;
+  verdict_normalized: string;
+  http_status?: number | null;
+  error_message?: string | null;
+  submitted_at: string;
+};
+
+export type RunFlagSubmissionListResponse = {
+  items: RunFlagSubmissionAttempt[];
 };
