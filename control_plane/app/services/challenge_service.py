@@ -103,6 +103,7 @@ def create_challenge(db: Session, request: ChallengeCreateRequest) -> ChallengeM
 
     existing = db.execute(
         select(ChallengeManifest).where(
+            ChallengeManifest.ctf_id == ctf.id,
             ChallengeManifest.platform == request.platform,
             ChallengeManifest.platform_challenge_id == platform_challenge_id,
         )

@@ -10,6 +10,7 @@ import type {
   CTF,
   CTFCreateRequest,
   CTFdConfigResponse,
+  CTFdPerCtfConfigResponse,
   CTFdSyncRequest,
   CTFdSyncResponse,
   CTFListResponse,
@@ -19,6 +20,7 @@ import type {
   RunListResponse,
   RunLogsResponse,
   RunRead,
+  RunFlagSubmissionListResponse,
   RunResultPayload,
   RunStatusResponse,
 } from "@/api/models";
@@ -100,6 +102,22 @@ export async function syncCtfd(payload: CTFdSyncRequest): Promise<CTFdSyncRespon
   });
 }
 
+export async function getCtfCtfdConfig(ctfId: string): Promise<CTFdPerCtfConfigResponse> {
+  return apiRequest<CTFdPerCtfConfigResponse>(`/ctfs/${ctfId}/integrations/ctfd/config`);
+}
+
+export async function clearCtfCtfdSessionCookie(ctfId: string): Promise<CTFdPerCtfConfigResponse> {
+  return apiRequest<CTFdPerCtfConfigResponse>(`/ctfs/${ctfId}/integrations/ctfd/session-cookie`, {
+    method: "DELETE",
+  });
+}
+
+export async function clearCtfCtfdApiToken(ctfId: string): Promise<CTFdPerCtfConfigResponse> {
+  return apiRequest<CTFdPerCtfConfigResponse>(`/ctfs/${ctfId}/integrations/ctfd/api-token`, {
+    method: "DELETE",
+  });
+}
+
 export async function createRun(payload: RunCreateRequest): Promise<RunRead> {
   return apiRequest<RunRead>("/runs", {
     method: "POST",
@@ -135,6 +153,10 @@ export async function getRunLogs(runId: string, offset: number, limit = 65536): 
 
 export async function getRunResult(runId: string): Promise<RunResultPayload> {
   return apiRequest<RunResultPayload>(`/runs/${runId}/result`);
+}
+
+export async function getRunSubmissions(runId: string): Promise<RunFlagSubmissionListResponse> {
+  return apiRequest<RunFlagSubmissionListResponse>(`/runs/${runId}/submissions`);
 }
 
 export async function deleteRun(runId: string): Promise<void> {

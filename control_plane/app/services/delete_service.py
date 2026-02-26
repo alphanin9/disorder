@@ -49,11 +49,13 @@ def delete_challenge(db: Session, challenge: ChallengeManifest) -> None:
 
     run_ids = _challenge_run_ids(db, challenge.id)
 
-    challenge_artifact_prefix = f"artifacts/{challenge.platform}/{challenge.platform_challenge_id}/"
+    challenge_artifact_prefixes = [f"artifacts/{challenge.platform}/{challenge.platform_challenge_id}/"]
+    if challenge.platform == "ctfd":
+        challenge_artifact_prefixes.append(f"artifacts/{challenge.platform}/{challenge.ctf_id}/{challenge.platform_challenge_id}/")
     challenge_artifact_keys: list[str] = []
     for artifact in challenge.artifacts or []:
         key = artifact.get("object_key") if isinstance(artifact, dict) else None
-        if isinstance(key, str) and key.startswith(challenge_artifact_prefix):
+        if isinstance(key, str) and any(key.startswith(prefix) for prefix in challenge_artifact_prefixes):
             challenge_artifact_keys.append(key)
 
     db.delete(challenge)

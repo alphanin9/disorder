@@ -294,6 +294,19 @@ def _managed_mcp_config_block(ida_url: str | None) -> str:
             ]
         )
 
+    if _env_truthy("CODEX_FLAG_SUBMIT_MCP_ENABLED", default=False):
+        server_command = os.getenv("CODEX_FLAG_SUBMIT_MCP_COMMAND", "python")
+        mcp_script = os.getenv("CODEX_FLAG_SUBMIT_MCP_SCRIPT", "/usr/local/bin/flag_submit_mcp.py")
+        mcp_args = [mcp_script, "--spec", SPEC_PATH.as_posix()]
+        lines.extend(
+            [
+                "[mcp_servers.flag_submit]",
+                f"command = {json.dumps(server_command)}",
+                f"args = {json.dumps(mcp_args)}",
+                "",
+            ]
+        )
+
     if ida_url:
         lines.extend(
             [

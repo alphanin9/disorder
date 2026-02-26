@@ -5,8 +5,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { ApiError } from "@/api/client";
-import { getCtfdConfig, syncCtfd } from "@/api/endpoints";
-import type { CTFdSyncRequest } from "@/api/models";
+import { clearCtfCtfdApiToken, clearCtfCtfdSessionCookie, getCtfCtfdConfig, syncCtfd } from "@/api/endpoints";
+import type { CTFdPerCtfConfigResponse, CTFdSyncRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -48,7 +48,8 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 export function CTFdImportCard() {
   const queryClient = useQueryClient();
-  const [configHint, setConfigHint] = useState<"idle" | "loaded" | "missing">("idle");
+  const [lastSyncedCtf, setLastSyncedCtf] = useState<{ id: string; slug: string } | null>(null);
+  const [savedConfig, setSavedConfig] = useState<CTFdPerCtfConfigResponse | null>(null);
 
   const form = useForm<CTFdSyncValues>({
     resolver: zodResolver(ctfdSyncSchema),
@@ -58,6 +59,26 @@ export function CTFdImportCard() {
       api_token: "",
       session_cookie: "",
     },
+  });
+
+  const ctfConfigMutation = useMutation({
+    mutationFn: (ctfId: string) => getCtfCtfdConfig(ctfId),
+    onSuccess: (config) => {
+      setSavedConfig(config);
+      if (config.base_url) {
+        form.setValue("base_url", config.base_url, { shouldValidate: true });
+      }
+    },
+  });
+
+  const clearSessionMutation = useMutation({
+    mutationFn: (ctfId: string) => clearCtfCtfdSessionCookie(ctfId),
+    onSuccess: (config) => setSavedConfig(config),
+  });
+
+  const clearTokenMutation = useMutation({
+    mutationFn: (ctfId: string) => clearCtfCtfdApiToken(ctfId),
+    onSuccess: (config) => setSavedConfig(config),
   });
 
   const syncMutation = useMutation({
@@ -70,28 +91,18 @@ export function CTFdImportCard() {
       };
       return syncCtfd(payload);
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       form.reset({
         base_url: variables.base_url.trim(),
         auth_mode: variables.auth_mode,
         api_token: "",
         session_cookie: "",
       });
-      setConfigHint("idle");
+      setLastSyncedCtf({ id: data.ctf_id, slug: data.ctf_slug });
+      setSavedConfig(null);
+      ctfConfigMutation.mutate(data.ctf_id);
       void queryClient.invalidateQueries({ queryKey: ["ctfs"] });
       void queryClient.invalidateQueries({ queryKey: ["challenges"] });
-    },
-  });
-
-  const loadConfigMutation = useMutation({
-    mutationFn: getCtfdConfig,
-    onSuccess: (config) => {
-      if (config.configured && config.base_url) {
-        form.setValue("base_url", config.base_url, { shouldDirty: true, shouldValidate: true });
-        setConfigHint("loaded");
-        return;
-      }
-      setConfigHint("missing");
     },
   });
 
@@ -100,14 +111,17 @@ export function CTFdImportCard() {
   });
 
   const syncError = syncMutation.error ? getErrorMessage(syncMutation.error, "Failed to sync CTFd challenges.") : null;
-  const loadConfigError = loadConfigMutation.error ? getErrorMessage(loadConfigMutation.error, "Failed to load saved CTFd config.") : null;
+  const savedConfigError =
+    ctfConfigMutation.error || clearSessionMutation.error || clearTokenMutation.error
+      ? getErrorMessage(ctfConfigMutation.error ?? clearSessionMutation.error ?? clearTokenMutation.error, "Failed to load saved CTFd config.")
+      : null;
   const authMode = form.watch("auth_mode");
 
   return (
     <Card>
       <h3 className="mb-3 text-lg font-semibold">Import from CTFd</h3>
       <p className="mb-3 text-sm text-slate-600">
-        Sync challenges from a CTFd instance. Session cookie mode is default and is used for one-time import only.
+        Sync challenges from a CTFd instance. Session cookie mode is default and can be saved (encrypted) for future backend auto-submit.
       </p>
 
       <form className="space-y-3" onSubmit={onSubmit}>
@@ -150,7 +164,7 @@ export function CTFdImportCard() {
               {...form.register("session_cookie")}
             />
             {form.formState.errors.session_cookie ? <p className="mt-1 text-xs text-danger">{form.formState.errors.session_cookie.message}</p> : null}
-            <p className="mt-1 text-xs text-slate-600">Used only for this sync request and never persisted by the harness.</p>
+            <p className="mt-1 text-xs text-slate-600">Stored encrypted per CTF so backend auto-submit can use it later. Session cookies may expire and need rotation.</p>
           </div>
         ) : (
           <div>
@@ -172,9 +186,6 @@ export function CTFdImportCard() {
           <Button type="submit" className="flex-1" disabled={syncMutation.isPending}>
             {syncMutation.isPending ? "Syncing..." : "Sync from CTFd"}
           </Button>
-          <Button type="button" variant="secondary" disabled={loadConfigMutation.isPending} onClick={() => loadConfigMutation.mutate()}>
-            {loadConfigMutation.isPending ? "Loading..." : "Load Saved Base URL"}
-          </Button>
         </div>
       </form>
 
@@ -184,10 +195,66 @@ export function CTFdImportCard() {
           Synced {syncMutation.data.synced} challenges from {syncMutation.data.platform}.
         </p>
       ) : null}
+      {syncMutation.data ? (
+        <div className="mt-2 rounded-md border border-slate-200 p-2 text-xs text-slate-700">
+          <p>
+            Saved auth modes for <code>{syncMutation.data.ctf_slug}</code>:{" "}
+            {syncMutation.data.stored_auth_modes.length > 0 ? syncMutation.data.stored_auth_modes.join(", ") : "(none)"}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-2"
+            disabled={ctfConfigMutation.isPending}
+            onClick={() => {
+              setLastSyncedCtf({ id: syncMutation.data.ctf_id, slug: syncMutation.data.ctf_slug });
+              ctfConfigMutation.mutate(syncMutation.data.ctf_id);
+            }}
+          >
+            {ctfConfigMutation.isPending ? "Refreshing..." : "Refresh Saved Auth State"}
+          </Button>
+        </div>
+      ) : null}
 
-      {loadConfigError ? <p className="mt-2 text-xs text-danger">{loadConfigError}</p> : null}
-      {!loadConfigError && configHint === "loaded" ? <p className="mt-2 text-xs text-success">Loaded saved base URL.</p> : null}
-      {!loadConfigError && configHint === "missing" ? <p className="mt-2 text-xs text-warning">No saved CTFd config found.</p> : null}
+      {savedConfigError ? <p className="mt-2 text-xs text-danger">{savedConfigError}</p> : null}
+      {lastSyncedCtf && savedConfig ? (
+        <div className="mt-3 rounded-md border border-slate-200 p-3 text-xs text-slate-700">
+          <p className="font-medium">Saved CTFd Auth ({lastSyncedCtf.slug})</p>
+          <p className="mt-1">
+            base URL: <code>{savedConfig.base_url || "(none)"}</code>
+          </p>
+          <p>
+            preferred auth: <code>{savedConfig.preferred_auth_mode ?? "(none)"}</code>
+          </p>
+          <p>
+            stored: {savedConfig.has_session_cookie ? "session cookie" : ""}{savedConfig.has_session_cookie && savedConfig.has_api_token ? " + " : ""}{savedConfig.has_api_token ? "api token" : ""}{!savedConfig.has_session_cookie && !savedConfig.has_api_token ? "(none)" : ""}
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={!savedConfig.has_session_cookie || clearSessionMutation.isPending}
+              onClick={() => {
+                if (!lastSyncedCtf) return;
+                clearSessionMutation.mutate(lastSyncedCtf.id);
+              }}
+            >
+              {clearSessionMutation.isPending ? "Clearing..." : "Clear Session Cookie"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={!savedConfig.has_api_token || clearTokenMutation.isPending}
+              onClick={() => {
+                if (!lastSyncedCtf) return;
+                clearTokenMutation.mutate(lastSyncedCtf.id);
+              }}
+            >
+              {clearTokenMutation.isPending ? "Clearing..." : "Clear API Token"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

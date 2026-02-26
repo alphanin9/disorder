@@ -16,15 +16,15 @@ from uuid import UUID
 import docker
 import httpx
 from docker.errors import DockerException, ImageNotFound, NotFound
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from control_plane.app.adapters.ctfd import CTFdClient
 from control_plane.app.core.config import get_settings
-from control_plane.app.db.models import ChallengeManifest, Run, RunResult
+from control_plane.app.db.models import CTFIntegrationConfig, ChallengeManifest, Run, RunResult
 from control_plane.app.db.session import SessionLocal
 from control_plane.app.schemas.result_contract import SandboxResult
 from control_plane.app.services.auth_service import CodexAuthMaterial, get_codex_auth_material_for_tag
-from control_plane.app.services.sync_service import get_ctfd_config
+from control_plane.app.services.flag_submission_service import build_flag_verification
 from control_plane.app.stop_criteria.engine import evaluate_stop_criteria
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import run_result_object_keys
@@ -130,7 +130,7 @@ class DockerRunner:
             volumes.update(skills_mount_volume)
             volumes.update(ida_mount_volume)
             volumes.update(continuation_mount_volume)
-            sandbox_env = self._sandbox_environment()
+            sandbox_env = self._sandbox_environment(db=db, challenge=challenge)
             sandbox_env.update(ida_env)
 
             container = self.client.containers.run(
@@ -200,7 +200,7 @@ class DockerRunner:
                 result_data["stop_criterion_met"] = stop_eval.stop_criterion_met
                 result_data["status"] = stop_eval.final_status
                 if stop_eval.final_status == "flag_found":
-                    result_data = self._verify_flag_result(db=db, challenge=challenge, result_data=result_data)
+                    result_data = self._verify_flag_result(db=db, run=run, challenge=challenge, result_data=result_data)
                 result_path.write_text(json.dumps(result_data, indent=2), encoding="utf-8")
                 validated = SandboxResult.model_validate(result_data)
                 final_status = stop_eval.final_status
@@ -394,7 +394,25 @@ class DockerRunner:
             translated = f"{translated}/{rest}"
         return translated
 
-    def _sandbox_environment(self) -> dict[str, str]:
+    def _ctf_has_ctfd_integration(self, db: Session, ctf_id: UUID | None) -> bool:
+        if ctf_id is None:
+            return False
+        stmt = (
+            select(CTFIntegrationConfig.id)
+            .where(
+                CTFIntegrationConfig.ctf_id == ctf_id,
+                CTFIntegrationConfig.provider == "ctfd",
+            )
+            .limit(1)
+        )
+        return db.execute(stmt).scalar_one_or_none() is not None
+
+    def _sandbox_environment(
+        self,
+        *,
+        db: Session | None = None,
+        challenge: ChallengeManifest | None = None,
+    ) -> dict[str, str]:
         env = {"PYTHONUNBUFFERED": "1", "HOME": "/home/ctf"}
         passthrough = [item.strip() for item in self.settings.sandbox_env_passthrough.split(",") if item.strip()]
         for name in passthrough:
@@ -405,6 +423,25 @@ class DockerRunner:
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         env.setdefault("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
         env.setdefault("CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills")
+        control_plane_url = (self.settings.sandbox_control_plane_url or "").strip()
+        if control_plane_url:
+            env.setdefault("DISORDER_CONTROL_PLANE_URL", control_plane_url.rstrip("/"))
+        else:
+            env.setdefault("DISORDER_CONTROL_PLANE_URL", f"http://host.docker.internal:{self.settings.app_port}")
+        flag_submit_mcp_enabled = bool(getattr(self.settings, "sandbox_flag_submit_mcp_enabled", False))
+        if not flag_submit_mcp_enabled and db is not None and challenge is not None:
+            try:
+                flag_submit_mcp_enabled = self._ctf_has_ctfd_integration(db, challenge.ctf_id)
+            except Exception as exc:
+                print(
+                    f"[orchestrator] unable to determine CTFd integration for challenge {challenge.id}; "
+                    f"leaving flag submit MCP disabled: {exc}",
+                    flush=True,
+                )
+        env.setdefault(
+            "CODEX_FLAG_SUBMIT_MCP_ENABLED",
+            "1" if flag_submit_mcp_enabled else "0",
+        )
         return env
 
     def _sandbox_ida_mount_and_env(self) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
@@ -506,7 +543,7 @@ class DockerRunner:
             return challenge.ctf.default_flag_regex
         return None
 
-    def _verify_flag_result(self, db: Session, challenge: ChallengeManifest, result_data: dict[str, Any]) -> dict[str, Any]:
+    def _verify_flag_result(self, db: Session, run: Run, challenge: ChallengeManifest, result_data: dict[str, Any]) -> dict[str, Any]:
         flag = result_data.get("flag")
         if not isinstance(flag, str) or not flag.strip():
             result_data["flag_verification"] = {
@@ -516,50 +553,14 @@ class DockerRunner:
             }
             return result_data
 
-        platform_error: str | None = None
-        if challenge.platform == "ctfd":
-            config = get_ctfd_config(db) or {}
-            base_url = config.get("base_url")
-            api_token = config.get("api_token")
-            if base_url and api_token:
-                client = CTFdClient(base_url=str(base_url), api_token=str(api_token))
-                try:
-                    attempt = client.submit_flag(challenge.platform_challenge_id, flag)
-                    verdict = str(attempt.get("status") or attempt.get("message") or attempt.get("result") or "unknown")
-                    verdict_lower = verdict.lower()
-                    verified = any(token in verdict_lower for token in ("correct", "already", "solved"))
-                    result_data["flag_verification"] = {
-                        "method": "platform_submit",
-                        "verified": verified,
-                        "details": f"CTFd submission verdict: {verdict}",
-                    }
-                    return result_data
-                except Exception as exc:
-                    platform_error = str(exc)
-                finally:
-                    client.close()
-
         regex = self._resolve_flag_regex(challenge)
-        if regex:
-            try:
-                matched = bool(re.search(regex, flag))
-                details = f"Regex verification {'matched' if matched else 'did not match'} pattern: {regex}"
-                if platform_error:
-                    details += f"; platform submit unavailable: {platform_error}"
-                result_data["flag_verification"] = {
-                    "method": "regex_only",
-                    "verified": matched,
-                    "details": details,
-                }
-                return result_data
-            except re.error as exc:
-                platform_error = f"Invalid regex pattern: {exc}"
-
-        result_data["flag_verification"] = {
-            "method": "none",
-            "verified": False,
-            "details": platform_error or "No verification method configured.",
-        }
+        result_data["flag_verification"] = build_flag_verification(
+            db,
+            run_id=run.id,
+            challenge=challenge,
+            flag=flag,
+            regex=regex,
+        )
         return result_data
 
     def _notify_discord_flag(self, run: Run, challenge: ChallengeManifest, result_data: dict[str, Any]) -> None:

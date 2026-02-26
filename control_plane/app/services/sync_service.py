@@ -15,6 +15,11 @@ from control_plane.app.adapters.ctfd import (
 from control_plane.app.db.models import ChallengeManifest, IntegrationConfig
 from control_plane.app.schemas.integration import CTFdSyncRequest
 from control_plane.app.services.challenge_service import ensure_ctf_for_sync
+from control_plane.app.services.ctfd_config_service import (
+    get_ctfd_config_response as get_ctfd_config_response_for_ctf,
+    get_ctfd_decrypted_credentials,
+    upsert_ctfd_config as upsert_ctfd_config_for_ctf,
+)
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import artifact_object_key, sha256_bytes
 
@@ -66,41 +71,40 @@ def _friendly_ctfd_http_error_message(auth_mode: str, exc: httpx.HTTPStatusError
 
 
 def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
-    config = get_ctfd_config(db)
-    base_url = str(request.base_url) if request.base_url else (config or {}).get("base_url")
+    legacy_config = get_ctfd_config(db) or {}
+    base_url = str(request.base_url) if request.base_url else legacy_config.get("base_url")
     auth_mode = _resolve_auth_mode(request)
     session_cookie = (request.session_cookie or "").strip()
-    configured_api_token = (config or {}).get("api_token")
-    api_token = request.api_token or configured_api_token
+    api_token = (request.api_token or "").strip() or None
 
     if not base_url:
         raise ValueError("CTFd integration is not configured. Provide base_url.")
 
+    ctf_event = ensure_ctf_for_sync(db, base_url=base_url)
+    per_ctf_creds = get_ctfd_decrypted_credentials(db, ctf_event.id) or {}
+    configured_api_token = str(per_ctf_creds.get("api_token") or "").strip() or None
+    configured_session_cookie = str(per_ctf_creds.get("session_cookie") or "").strip() or None
+    if not api_token:
+        legacy_api_token = str(legacy_config.get("api_token") or "").strip() or None
+        legacy_base_url = str(legacy_config.get("base_url") or "").strip()
+        if configured_api_token:
+            api_token = configured_api_token
+        elif legacy_api_token and legacy_base_url.rstrip("/") == str(base_url).rstrip("/"):
+            api_token = legacy_api_token
+
+    if not session_cookie and configured_session_cookie:
+        session_cookie = configured_session_cookie
+
     if auth_mode == "session_cookie":
         if not session_cookie:
             raise ValueError("CTFd sync with session_cookie auth requires session_cookie.")
-        # Persist base_url for convenience; never persist session cookies.
-        if configured_api_token:
-            upsert_ctfd_config(db, base_url=base_url, api_token=configured_api_token)
-        else:
-            stmt = select(IntegrationConfig).where(IntegrationConfig.name == "ctfd")
-            existing = db.execute(stmt).scalar_one_or_none()
-            if existing is None:
-                existing = IntegrationConfig(name="ctfd", config_json={})
-                db.add(existing)
-            existing.config_json = {"base_url": base_url.rstrip("/")}
-            existing.updated_at = datetime.now(timezone.utc)
-            db.commit()
-            db.refresh(existing)
         client = CTFdClient(base_url=base_url, session_cookie=session_cookie)
     else:
         if not api_token:
             raise ValueError("CTFd integration is not configured. Provide base_url and api_token.")
-        upsert_ctfd_config(db, base_url=base_url, api_token=api_token)
         client = CTFdClient(base_url=base_url, api_token=api_token)
 
     blob_store = get_blob_store()
-    ctf_event = ensure_ctf_for_sync(db, base_url=base_url)
 
     try:
         summaries = client.list_challenges()
@@ -122,6 +126,7 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
                     challenge_id=summary.challenge_id,
                     file_name=file_entry["name"],
                     sha256_hex=sha_hex,
+                    scope=str(ctf_event.id),
                 )
                 if not blob_store.object_exists(object_key):
                     blob_store.put_bytes(object_key=object_key, data=file_bytes)
@@ -140,6 +145,7 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
             }
 
             query = select(ChallengeManifest).where(
+                ChallengeManifest.ctf_id == ctf_event.id,
                 ChallengeManifest.platform == "ctfd",
                 ChallengeManifest.platform_challenge_id == summary.challenge_id,
             )
@@ -162,7 +168,40 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
             synced += 1
 
         db.commit()
-        return {"synced": synced, "platform": "ctfd"}
+        if auth_mode == "api_token" and api_token:
+            upsert_ctfd_config(db, base_url=base_url, api_token=api_token)
+        elif auth_mode == "session_cookie":
+            legacy_api_token = str(legacy_config.get("api_token") or "").strip() or None
+            if legacy_api_token:
+                upsert_ctfd_config(db, base_url=base_url, api_token=legacy_api_token)
+            else:
+                stmt = select(IntegrationConfig).where(IntegrationConfig.name == "ctfd")
+                existing = db.execute(stmt).scalar_one_or_none()
+                if existing is None:
+                    existing = IntegrationConfig(name="ctfd", config_json={})
+                    db.add(existing)
+                existing.config_json = {"base_url": str(base_url).rstrip("/")}
+                existing.updated_at = datetime.now(timezone.utc)
+                db.commit()
+                db.refresh(existing)
+        upsert_ctfd_config_for_ctf(
+            db,
+            ctf_id=ctf_event.id,
+            base_url=base_url,
+            preferred_auth_mode=auth_mode,
+            last_sync_auth_mode=auth_mode,
+            api_token=api_token if auth_mode == "api_token" else None,
+            session_cookie=session_cookie if auth_mode == "session_cookie" else None,
+        )
+        per_ctf_config = get_ctfd_config_response_for_ctf(db, ctf_event.id)
+        return {
+            "synced": synced,
+            "platform": "ctfd",
+            "ctf_id": str(ctf_event.id),
+            "ctf_slug": ctf_event.slug,
+            "auth_mode_used": auth_mode,
+            "stored_auth_modes": per_ctf_config.get("stored_auth_modes", []),
+        }
     except httpx.HTTPStatusError as exc:
         message = _friendly_ctfd_http_error_message(auth_mode=auth_mode, exc=exc)
         if message:

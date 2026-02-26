@@ -88,8 +88,17 @@ class MinioBlobStore:
         return deleted
 
 
-def artifact_object_key(platform: str, challenge_id: str, file_name: str, sha256_hex: str) -> str:
+def artifact_object_key(
+    platform: str,
+    challenge_id: str,
+    file_name: str,
+    sha256_hex: str,
+    scope: str | None = None,
+) -> str:
     safe_name = file_name.replace(" ", "_")
+    if scope:
+        safe_scope = str(scope).replace("\\", "/").strip("/").replace(" ", "_")
+        return f"artifacts/{platform}/{safe_scope}/{challenge_id}/{sha256_hex}/{safe_name}"
     return f"artifacts/{platform}/{challenge_id}/{sha256_hex}/{safe_name}"
 
 
