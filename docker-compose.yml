@@ -9,6 +9,7 @@
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ctf -d ctf_harness"]
       interval: 2s
@@ -26,6 +27,7 @@
       - "9001:9001"
     volumes:
       - minio_data:/data
+    restart: unless-stopped
 
   control_plane:
     build:
@@ -58,7 +60,7 @@
       DISCORD_NOTIFY_INCLUDE_FLAG: ${DISCORD_NOTIFY_INCLUDE_FLAG:-true}
     ports:
       - "8000:8000"
-    restart: on-failure
+    restart: unless-stopped
     volumes:
       - ./runs:/data/runs
       - /var/run/docker.sock:/var/run/docker.sock
@@ -74,6 +76,7 @@
       dockerfile: Dockerfile
     ports:
       - "3000:80"
+    restart: unless-stopped
     depends_on:
       control_plane:
         condition: service_started
