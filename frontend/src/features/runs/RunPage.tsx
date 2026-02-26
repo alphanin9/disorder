@@ -273,6 +273,16 @@ export function RunPage() {
   const challengeDisplay = [challengeName, ctfName].filter((value): value is string => Boolean(value)).join(" / ");
   const childRuns = runQuery.data?.child_runs ?? [];
   const parentRunId = runMeta?.parent_run_id;
+  const hostPassthroughs = Array.isArray((runMeta?.paths as Record<string, unknown> | undefined)?.host_passthroughs)
+    ? (((runMeta?.paths as Record<string, unknown>).host_passthroughs as Array<Record<string, unknown>>) ?? [])
+        .map((entry) => ({
+          name: String(entry.name ?? ""),
+          hostPath: String(entry.host_path ?? ""),
+          mountPath: String(entry.mount_path ?? ""),
+          mode: String(entry.mode ?? "ro"),
+        }))
+        .filter((entry) => entry.mountPath.length > 0)
+    : [];
   const details = useMemo(
     () => [
       ["Challenge / CTF", challengeDisplay || runMeta?.challenge_id || "-"],
@@ -345,6 +355,23 @@ export function RunPage() {
             </div>
           ))}
         </dl>
+
+        {hostPassthroughs.length > 0 ? (
+          <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Host Passthroughs</p>
+            <ul className="space-y-2">
+              {hostPassthroughs.map((entry) => (
+                <li key={`${entry.mountPath}-${entry.hostPath}`} className="rounded-md bg-white px-3 py-2">
+                  <p className="font-medium text-slate-900">{entry.name || entry.mountPath.split("/").pop() || "host-mount"}</p>
+                  <p className="text-xs text-slate-600">Host: {entry.hostPath || "(hidden in sandbox spec)"}</p>
+                  <p className="text-xs text-slate-600">
+                    Sandbox: {entry.mountPath} ({entry.mode})
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {parentRunId || childRuns.length > 0 ? (
           <div className="mt-4 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">

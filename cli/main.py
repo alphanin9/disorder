@@ -119,6 +119,11 @@ def run_challenge(
     challenge_id: str = typer.Option(..., "--challenge-id", help="Challenge UUID from /challenges"),
     backend: str = typer.Option("mock", "--backend", help="mock|codex|claude_code"),
     local_deploy: bool = typer.Option(False, "--local-deploy", help="Enable local docker compose deploy if present"),
+    host_dirs: list[str] | None = typer.Option(
+        None,
+        "--host-dir",
+        help="Host directory passthrough (repeatable, mounted read-only under /workspace/chal/_host/*; server must enable feature)",
+    ),
     api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
     stream_logs: bool = typer.Option(True, "--stream-logs/--no-stream-logs", help="Stream logs until run completes"),
     poll_seconds: float = typer.Option(1.0, "--poll-seconds", min=0.2, max=10.0),
@@ -129,6 +134,8 @@ def run_challenge(
         "backend": backend,
         "local_deploy_enabled": local_deploy,
     }
+    if host_dirs:
+        payload["host_passthroughs"] = [{"host_path": host_dir} for host_dir in host_dirs if host_dir.strip()]
     run = _api_request("POST", resolved_api, "/runs", payload)
     run_id = run["id"]
     typer.echo(f"Started run {run_id} with backend={backend}")

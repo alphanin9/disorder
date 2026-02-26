@@ -32,6 +32,7 @@ from control_plane.app.services.delete_service import delete_run
 from control_plane.app.services.flag_submission_service import build_flag_verification, list_run_flag_submission_attempts
 from control_plane.app.services.run_service import (
     RunContinuationError,
+    RunCreateError,
     create_continuation_run,
     create_run,
     get_run_or_none,
@@ -87,9 +88,9 @@ def _write_terminated_result_if_missing(run_id: UUID, challenge: ChallengeManife
 @router.post("", response_model=RunRead)
 def start_run(request: RunCreateRequest, db: Session = Depends(get_db)) -> RunRead:
     try:
-        run = create_run(db, request)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        run = create_run(db, request, settings=settings)
+    except RunCreateError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     get_orchestrator().launch_async(str(run.id))
     return RunRead.model_validate(run, from_attributes=True)

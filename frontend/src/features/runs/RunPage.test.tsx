@@ -16,7 +16,18 @@ const server = setupServer(
         budgets: { max_minutes: 30, max_commands: null },
         stop_criteria: {},
         allowed_endpoints: [],
-        paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
+        paths: {
+          chal_mount: "/workspace/chal",
+          run_mount: "/workspace/run",
+          host_passthroughs: [
+            {
+              name: "case1",
+              host_path: "G:\\forensics\\case1",
+              mount_path: "/workspace/chal/_host/case1",
+              mode: "ro",
+            },
+          ],
+        },
         local_deploy: { enabled: false, network: null, endpoints: [] },
         status: "deliverable_produced",
         error_message: null,
@@ -115,6 +126,9 @@ describe("RunPage", () => {
     expect(await screen.findByText(/Run 7d2d5201/i)).toBeInTheDocument();
     expect(await screen.findByText("Challenge / CTF")).toBeInTheDocument();
     expect(await screen.findByText("Warmup / Demo CTF")).toBeInTheDocument();
+    expect(await screen.findByText(/Host Passthroughs/i)).toBeInTheDocument();
+    expect(await screen.findByText(/G:\\forensics\\case1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/\/workspace\/chal\/_host\/case1 \(ro\)/i)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Continue run/i })).toBeInTheDocument();
     expect(await screen.findByText(/Child runs/i)).toBeInTheDocument();
     await waitFor(() => {

@@ -17,6 +17,7 @@
    - `POST /runs/{run_id}/continue` creates a child run linked to the terminal parent run and stores operator continuation input.
 4. Orchestrator hydrates artifacts into `runs/<run_id>/chal`, writes `runs/<run_id>/run/spec.json`, starts sandbox.
    - Challenge artifacts are mounted read-only at `/workspace/chal`.
+   - Optional operator-specified host passthrough directories may be mounted read-only under `/workspace/chal/_host/*` (explicit server opt-in).
    - Run workspace is mounted read-write at `/workspace/run`.
    - For continuation runs with artifact reuse enabled, control plane writes a read-only continuation bundle at `runs/<child_run_id>/continuation`:
      - `parent_result.json`
@@ -26,6 +27,7 @@
    - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
    - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only as seed material; sandbox startup copies it into writable `CODEX_HOME`.
    - If `SANDBOX_CODEX_SKILLS_HOST_PATH` is configured, orchestrator mounts that directory read-only into the run and sandbox startup copies all seeded skill files into writable `CODEX_HOME/skills`.
+   - Host passthrough mounts are read-only and intended for large local datasets (for example pre-mounted forensic evidence) that should not be copied into run storage.
    - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
    - If `SANDBOX_IDA_HOST_PATH` is configured, orchestrator mounts IDA read-only, exports `IDADIR`, optionally mounts `/home/ctf/.idapro` for persistent registry state, and sandbox startup auto-accepts configured EULA keys before launching `uv run idalib-mcp` and registering it as an HTTP MCP server for Codex.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.

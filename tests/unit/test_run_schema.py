@@ -44,6 +44,48 @@ def test_run_create_rejects_invalid_reasoning_effort() -> None:
         )
 
 
+def test_run_create_accepts_host_passthroughs() -> None:
+    payload = RunCreateRequest.model_validate(
+        {
+            "challenge_id": "11111111-1111-1111-1111-111111111111",
+            "backend": "codex",
+            "local_deploy_enabled": False,
+            "host_passthroughs": [
+                {"host_path": r"G:\evidence\case1", "name": "case1"},
+                {"host_path": "/mnt/forensics/case2"},
+            ],
+        }
+    )
+    assert payload.host_passthroughs is not None
+    assert payload.host_passthroughs[0].host_path == r"G:\evidence\case1"
+    assert payload.host_passthroughs[0].name == "case1"
+    assert payload.host_passthroughs[1].name is None
+
+
+def test_run_create_rejects_blank_host_passthrough_path() -> None:
+    with pytest.raises(ValidationError):
+        RunCreateRequest.model_validate(
+            {
+                "challenge_id": "11111111-1111-1111-1111-111111111111",
+                "backend": "codex",
+                "local_deploy_enabled": False,
+                "host_passthroughs": [{"host_path": "   "}],
+            }
+        )
+
+
+def test_run_create_rejects_blank_host_passthrough_name() -> None:
+    with pytest.raises(ValidationError):
+        RunCreateRequest.model_validate(
+            {
+                "challenge_id": "11111111-1111-1111-1111-111111111111",
+                "backend": "codex",
+                "local_deploy_enabled": False,
+                "host_passthroughs": [{"host_path": "/mnt/case", "name": "   "}],
+            }
+        )
+
+
 def test_run_continue_requires_non_empty_message() -> None:
     with pytest.raises(ValidationError):
         RunContinueRequest.model_validate({"message": "   "})

@@ -96,6 +96,14 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
         flag_regex=None,
     )
     parent_run = _make_parent_run(challenge.id)
+    parent_run.paths["host_passthroughs"] = [
+        {
+            "name": "case1",
+            "host_path": r"G:\forensics\case1",
+            "mount_path": "/workspace/chal/_host/case1",
+            "mode": "ro",
+        }
+    ]
     parent_result = RunResult(
         run_id=parent_run.id,
         status="deliverable_produced",
@@ -143,6 +151,7 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
     assert child_run.continuation_type == "hint"
     assert child_run.budgets["max_minutes"] == 2
     assert child_run.paths["continuation_mount"] == "/workspace/continuation"
+    assert child_run.paths["host_passthroughs"] == parent_run.paths["host_passthroughs"]
 
     context_dir = tmp_path / str(child_run.id) / "continuation"
     assert (context_dir / "parent_result.json").exists()

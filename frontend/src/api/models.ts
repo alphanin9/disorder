@@ -9,6 +9,10 @@ export type RunCreateRequest = BaseRunCreateRequest & {
     max_minutes: number;
     max_commands?: number | null;
   } | null;
+  host_passthroughs?: Array<{
+    host_path: string;
+    name?: string | null;
+  }> | null;
 };
 export type RunContinuationType = "hint" | "deliverable_fix" | "strategy_change" | "other";
 type BaseRunRead = components["schemas"]["RunRead"];

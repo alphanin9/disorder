@@ -215,3 +215,61 @@ def test_seed_writable_codex_home_copies_skill_seed(monkeypatch, tmp_path) -> No
     assert copied_skill.read_text(encoding="utf-8") == "# ctf-player"
     assert copied_ref.exists()
     assert copied_ref.read_text(encoding="utf-8") == "hello"
+
+
+def test_list_challenge_artifacts_excludes_host_passthrough_tree(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    chal_dir = tmp_path / "chal"
+    chal_dir.mkdir()
+    (chal_dir / "small.txt").write_text("x", encoding="utf-8")
+    (chal_dir / "_host" / "case1").mkdir(parents=True, exist_ok=True)
+    (chal_dir / "_host" / "case1" / "huge.bin").write_text("data", encoding="utf-8")
+
+    monkeypatch.setattr(module, "CHAL_DIR", chal_dir)
+    artifacts = module._list_challenge_artifacts()
+    assert artifacts == ["small.txt"]
+
+
+def test_render_prompt_includes_host_passthrough_summary_without_listing_tree(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    chal_dir = tmp_path / "chal"
+    run_dir = tmp_path / "run"
+    chal_dir.mkdir()
+    run_dir.mkdir()
+    (chal_dir / "artifact.txt").write_text("x", encoding="utf-8")
+    (chal_dir / "_host" / "case1").mkdir(parents=True)
+    (chal_dir / "_host" / "case1" / "nested.txt").write_text("secret", encoding="utf-8")
+
+    prompt_template = tmp_path / "prompt.txt"
+    prompt_template.write_text(
+        "Artifacts:\n{challenge_artifacts}\n\nContinuation:\n{continuation_context}\n\nTooling:\n{tooling_guide}\n",
+        encoding="utf-8",
+    )
+    tooling_guide = tmp_path / "tooling.md"
+    tooling_guide.write_text("guide", encoding="utf-8")
+
+    monkeypatch.setattr(module, "CHAL_DIR", chal_dir)
+    monkeypatch.setattr(module, "RUN_DIR", run_dir)
+    monkeypatch.setattr(module, "PROMPT_TEMPLATE_PATH", prompt_template)
+    monkeypatch.setattr(module, "TOOLING_GUIDE_PATH", tooling_guide)
+
+    rendered = module._render_prompt(
+        {
+            "challenge_name": "Forensics 1",
+            "category": "forensics",
+            "points": 100,
+            "description_md": "desc",
+            "reasoning_effort": "high",
+            "stop_criteria": {},
+            "allowed_endpoints": [],
+            "paths": {
+                "host_passthroughs": [
+                    {"name": "case1", "mount_path": "/workspace/chal/_host/case1", "mode": "ro"}
+                ]
+            },
+        }
+    )
+    assert "artifact.txt" in rendered
+    assert "nested.txt" not in rendered
+    assert "Host passthrough directories" in rendered
+    assert "/workspace/chal/_host/case1" in rendered

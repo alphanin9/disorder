@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useFieldArray, useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
@@ -28,6 +28,14 @@ const runSchema = z.object({
     },
     z.coerce.number().int().min(1, "Must be >= 1 command").max(1_000_000, "Too large").nullable(),
   ),
+  host_passthroughs: z
+    .array(
+      z.object({
+        host_path: z.string(),
+        name: z.string().optional(),
+      }),
+    )
+    .default([]),
 });
 
 const editSchema = z.object({
@@ -150,11 +158,23 @@ export function ChallengeDetailPage() {
       local_deploy_enabled: false,
       max_minutes: 30,
       max_commands: null,
+      host_passthroughs: [],
     },
+  });
+  const hostPassthroughFields = useFieldArray({
+    control: runForm.control,
+    name: "host_passthroughs",
   });
 
   const runMutation = useMutation({
     mutationFn: (values: RunForm) => {
+      const hostPassthroughs = values.host_passthroughs
+        .map((entry) => ({
+          host_path: entry.host_path.trim(),
+          name: entry.name?.trim() ? entry.name.trim() : null,
+        }))
+        .filter((entry) => entry.host_path.length > 0);
+
       const stopCriteria =
         values.goal === "deliverable"
           ? {
@@ -193,6 +213,9 @@ export function ChallengeDetailPage() {
         stop_criteria: stopCriteria,
         local_deploy_enabled: values.local_deploy_enabled,
       };
+      if (hostPassthroughs.length > 0) {
+        payload.host_passthroughs = hostPassthroughs;
+      }
       return createRun(payload);
     },
     onSuccess: (run) => {
@@ -456,6 +479,70 @@ export function ChallengeDetailPage() {
             ) : (
               <p className="mt-1 text-xs text-slate-600">Leave blank for no command-count cap.</p>
             )}
+          </div>
+
+          <div className="rounded-md border border-slate-200 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Host Passthrough Directories (optional)</p>
+                <p className="text-xs text-slate-600">
+                  Mounted read-only under <code>/workspace/chal/_host/&lt;name&gt;</code>. Useful for large forensics datasets already on the host.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-8 px-3 text-xs"
+                onClick={() => {
+                  hostPassthroughFields.append({ host_path: "", name: "" });
+                }}
+              >
+                Add Directory
+              </Button>
+            </div>
+
+            {hostPassthroughFields.fields.length === 0 ? <p className="text-xs text-slate-600">No host passthrough directories configured.</p> : null}
+
+            <div className="space-y-3">
+              {hostPassthroughFields.fields.map((field, index) => (
+                <div key={field.id} className="rounded-md bg-slate-50 p-3">
+                  <div className="grid gap-3 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor={`host_passthroughs_${index}_path`}>
+                        Host Path
+                      </label>
+                      <input
+                        id={`host_passthroughs_${index}_path`}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2"
+                        placeholder={String.raw`G:\forensics\case1`}
+                        {...runForm.register(`host_passthroughs.${index}.host_path`)}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor={`host_passthroughs_${index}_name`}>
+                        Label (optional)
+                      </label>
+                      <input
+                        id={`host_passthroughs_${index}_name`}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2"
+                        placeholder="case1"
+                        {...runForm.register(`host_passthroughs.${index}.name`)}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-10 px-3 text-xs text-danger hover:text-danger"
+                      onClick={() => {
+                        hostPassthroughFields.remove(index);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {runMutation.isError ? <p className="text-sm text-danger">Failed to start run.</p> : null}

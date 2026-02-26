@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from math import ceil
 from pathlib import Path
@@ -19,6 +20,12 @@ CONTINUATION_MOUNT_PATH = "/workspace/continuation"
 
 
 class RunContinuationError(ValueError):
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class RunCreateError(ValueError):
     def __init__(self, message: str, *, status_code: int) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -62,12 +69,94 @@ def _resolve_run_budgets(request: RunCreateRequest) -> dict:
     return budgets
 
 
-def create_run(db: Session, request: RunCreateRequest) -> Run:
+def _normalize_passthrough_mount_root(raw_root: str) -> str:
+    root = (raw_root or "").strip() or "/workspace/chal/_host"
+    if not root.startswith("/"):
+        root = "/" + root
+    return root.rstrip("/") or "/workspace/chal/_host"
+
+
+def _slugify_passthrough_name(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-.").lower()
+    return slug[:64] if slug else ""
+
+
+def _default_passthrough_name_from_host_path(host_path: str, index: int) -> str:
+    normalized = host_path.replace("\\", "/").rstrip("/")
+    candidate = Path(normalized).name or normalized.split("/")[-1] or f"mount-{index}"
+    slug = _slugify_passthrough_name(candidate)
+    return slug or f"mount-{index}"
+
+
+def _clone_host_passthroughs(paths: dict | None) -> list[dict]:
+    raw = (paths or {}).get("host_passthroughs")
+    if not isinstance(raw, list):
+        return []
+    cloned: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        host_path = str(entry.get("host_path") or "").strip()
+        mount_path = str(entry.get("mount_path") or "").strip()
+        if not host_path or not mount_path:
+            continue
+        cloned.append(
+            {
+                "name": str(entry.get("name") or "").strip() or _default_passthrough_name_from_host_path(host_path, len(cloned) + 1),
+                "host_path": host_path,
+                "mount_path": mount_path,
+                "mode": "ro",
+            }
+        )
+    return cloned
+
+
+def _resolve_host_passthroughs_for_run(request: RunCreateRequest, settings: Settings) -> list[dict]:
+    requested = list(request.host_passthroughs or [])
+    if not requested:
+        return []
+    if not settings.sandbox_host_passthrough_enabled:
+        raise RunCreateError("Host directory passthrough is disabled", status_code=403)
+
+    max_dirs = int(getattr(settings, "sandbox_host_passthrough_max_dirs", 4) or 4)
+    if max_dirs <= 0:
+        max_dirs = 1
+    if len(requested) > max_dirs:
+        raise RunCreateError(f"Too many host passthrough directories (max={max_dirs})", status_code=422)
+
+    mount_root = _normalize_passthrough_mount_root(getattr(settings, "sandbox_host_passthrough_mount_root", "/workspace/chal/_host"))
+    used_names: set[str] = set()
+    normalized: list[dict] = []
+    for index, entry in enumerate(requested, start=1):
+        host_path = entry.host_path.strip()
+        base_name = _slugify_passthrough_name(entry.name or "") or _default_passthrough_name_from_host_path(host_path, index)
+        name = base_name
+        suffix = 2
+        while name in used_names:
+            name = f"{base_name}-{suffix}"
+            suffix += 1
+        used_names.add(name)
+        normalized.append(
+            {
+                "name": name,
+                "host_path": host_path,
+                "mount_path": f"{mount_root}/{name}",
+                "mode": "ro",
+            }
+        )
+    return normalized
+
+
+def create_run(db: Session, request: RunCreateRequest, *, settings: Settings) -> Run:
     challenge = db.get(ChallengeManifest, request.challenge_id)
     if challenge is None:
-        raise ValueError("Challenge not found")
+        raise RunCreateError("Challenge not found", status_code=404)
 
     stop_criteria = merge_stop_criteria(build_default_stop_criteria(challenge), request.stop_criteria)
+    paths = {"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"}
+    host_passthroughs = _resolve_host_passthroughs_for_run(request, settings)
+    if host_passthroughs:
+        paths["host_passthroughs"] = host_passthroughs
     run = Run(
         challenge_id=challenge.id,
         parent_run_id=None,
@@ -78,7 +167,7 @@ def create_run(db: Session, request: RunCreateRequest) -> Run:
         budgets=_resolve_run_budgets(request),
         stop_criteria=stop_criteria,
         allowed_endpoints=challenge.remote_endpoints,
-        paths={"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"},
+        paths=paths,
         local_deploy={"enabled": request.local_deploy_enabled, "network": None, "endpoints": []},
         status="queued",
         started_at=datetime.now(timezone.utc),
@@ -201,6 +290,9 @@ def create_continuation_run(
 
     local_deploy_enabled = bool((parent_run.local_deploy or {}).get("enabled", False))
     child_paths = {"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"}
+    parent_host_passthroughs = _clone_host_passthroughs(parent_run.paths or {})
+    if parent_host_passthroughs:
+        child_paths["host_passthroughs"] = parent_host_passthroughs
     if request.reuse_parent_artifacts:
         child_paths["continuation_mount"] = CONTINUATION_MOUNT_PATH
 

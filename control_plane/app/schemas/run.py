@@ -14,6 +14,29 @@ class RunBudgetOverrides(BaseModel):
     max_commands: int | None = Field(default=None, ge=1, le=1_000_000)
 
 
+class RunHostPassthroughRequest(BaseModel):
+    host_path: str = Field(min_length=1)
+    name: str | None = Field(default=None, max_length=64)
+
+    @field_validator("host_path")
+    @classmethod
+    def validate_host_path(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("host_path cannot be empty")
+        return normalized
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name cannot be empty when provided")
+        return normalized
+
+
 class RunCreateRequest(BaseModel):
     challenge_id: UUID
     backend: str = "mock"
@@ -21,6 +44,7 @@ class RunCreateRequest(BaseModel):
     budgets: RunBudgetOverrides | None = None
     stop_criteria: dict | None = None
     local_deploy_enabled: bool = False
+    host_passthroughs: list[RunHostPassthroughRequest] | None = None
 
 
 class RunContinueRequest(BaseModel):

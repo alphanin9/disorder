@@ -105,14 +105,51 @@ def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
     }
 
 
-def _list_challenge_artifacts() -> list[str]:
+def _list_challenge_artifacts(spec: dict[str, Any] | None = None) -> list[str]:
     if not CHAL_DIR.exists():
         return []
+    excluded_roots = {"_host"}
+    if isinstance(spec, dict):
+        for entry in _list_host_passthrough_mounts(spec):
+            mount_path = entry.get("mount_path", "")
+            chal_prefix = CHAL_DIR.as_posix().rstrip("/") + "/"
+            if mount_path.startswith(chal_prefix):
+                rel = mount_path[len(chal_prefix) :].strip("/")
+                first = rel.split("/", 1)[0].strip() if rel else ""
+                if first:
+                    excluded_roots.add(first)
     paths: list[str] = []
     for path in CHAL_DIR.rglob("*"):
         if path.is_file():
-            paths.append(path.relative_to(CHAL_DIR).as_posix())
+            rel = path.relative_to(CHAL_DIR)
+            if rel.parts and rel.parts[0] in excluded_roots:
+                continue
+            paths.append(rel.as_posix())
     return sorted(paths)
+
+
+def _list_host_passthrough_mounts(spec: dict[str, Any]) -> list[dict[str, str]]:
+    raw_paths = spec.get("paths")
+    if not isinstance(raw_paths, dict):
+        return []
+    raw_items = raw_paths.get("host_passthroughs")
+    if not isinstance(raw_items, list):
+        return []
+    items: list[dict[str, str]] = []
+    for entry in raw_items:
+        if not isinstance(entry, dict):
+            continue
+        mount_path = str(entry.get("mount_path") or "").strip()
+        if not mount_path:
+            continue
+        items.append(
+            {
+                "name": str(entry.get("name") or Path(mount_path).name or "host-mount").strip(),
+                "mount_path": mount_path,
+                "mode": str(entry.get("mode") or "ro").strip() or "ro",
+            }
+        )
+    return items
 
 
 def _render_continuation_context(spec: dict[str, Any]) -> str:
@@ -152,8 +189,19 @@ def _render_prompt(spec: dict[str, Any]) -> str:
         if TOOLING_GUIDE_PATH.exists()
         else "Tooling guide unavailable."
     )
-    artifact_list = _list_challenge_artifacts()
+    artifact_list = _list_challenge_artifacts(spec)
     artifacts_preview = "\n".join(f"- {artifact}" for artifact in artifact_list[:200]) or "- (none)"
+    host_passthroughs = _list_host_passthrough_mounts(spec)
+    if host_passthroughs:
+        passthrough_lines = "\n".join(
+            f"- {entry['name']}: {entry['mount_path']} ({entry['mode']}, large tree not prelisted)"
+            for entry in host_passthroughs[:50]
+        )
+        artifacts_preview = (
+            f"{artifacts_preview}\n\n"
+            "Host passthrough directories (mounted into /workspace/chal/_host, contents may be large):\n"
+            f"{passthrough_lines}"
+        )
     continuation_context = _render_continuation_context(spec)
     return template.format(
         challenge_name=spec.get("challenge_name", "Unknown"),

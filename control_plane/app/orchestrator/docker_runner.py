@@ -121,6 +121,7 @@ class DockerRunner:
             skills_mount_volume = self._sandbox_codex_skills_volumes()
             ida_mount_volume, ida_env = self._sandbox_ida_mount_and_env()
             continuation_mount_volume = self._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
+            host_passthrough_volumes = self._sandbox_host_passthrough_volumes(run=run)
 
             volumes = {
                 str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
@@ -130,6 +131,7 @@ class DockerRunner:
             volumes.update(skills_mount_volume)
             volumes.update(ida_mount_volume)
             volumes.update(continuation_mount_volume)
+            volumes.update(host_passthrough_volumes)
             sandbox_env = self._sandbox_environment(db=db, challenge=challenge)
             sandbox_env.update(ida_env)
 
@@ -518,6 +520,27 @@ class DockerRunner:
         )
         return {str(host_path): {"bind": mount_path, "mode": "ro"}}
 
+    def _sandbox_host_passthrough_volumes(self, run: Run) -> dict[str, dict[str, str]]:
+        raw_entries = (run.paths or {}).get("host_passthroughs")
+        if not isinstance(raw_entries, list) or not raw_entries:
+            return {}
+
+        volumes: dict[str, dict[str, str]] = {}
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                continue
+            host_path = str(entry.get("host_path") or "").strip()
+            mount_path = str(entry.get("mount_path") or "").strip()
+            if not host_path or not mount_path:
+                continue
+            resolved = self._resolve_host_mount_path(Path(host_path))
+            print(
+                f"[orchestrator] mounting host passthrough for run {run.id}: {resolved} -> {mount_path} (ro)",
+                flush=True,
+            )
+            volumes[str(resolved)] = {"bind": mount_path, "mode": "ro"}
+        return volumes
+
     def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
         copied = 0
         for file_entry in files:
@@ -609,6 +632,27 @@ class DockerRunner:
             destination.parent.mkdir(parents=True, exist_ok=True)
             self.blob_store.download_file(artifact["object_key"], destination)
 
+    def _paths_for_sandbox_spec(self, paths: dict | None) -> dict[str, Any]:
+        raw_paths = dict(paths or {})
+        passthroughs = raw_paths.get("host_passthroughs")
+        if isinstance(passthroughs, list):
+            sanitized: list[dict[str, str]] = []
+            for entry in passthroughs:
+                if not isinstance(entry, dict):
+                    continue
+                mount_path = str(entry.get("mount_path") or "").strip()
+                if not mount_path:
+                    continue
+                sanitized.append(
+                    {
+                        "name": str(entry.get("name") or "").strip() or Path(mount_path).name,
+                        "mount_path": mount_path,
+                        "mode": "ro",
+                    }
+                )
+            raw_paths["host_passthroughs"] = sanitized
+        return raw_paths
+
     def _build_spec_payload(self, run: Run, challenge: ChallengeManifest) -> dict[str, Any]:
         reasoning_effort = str(run.budgets.get("reasoning_effort") or "medium").lower()
         if reasoning_effort not in {"low", "medium", "high", "xhigh"}:
@@ -625,7 +669,7 @@ class DockerRunner:
             "budgets": run.budgets,
             "stop_criteria": run.stop_criteria,
             "allowed_endpoints": run.allowed_endpoints,
-            "paths": run.paths,
+            "paths": self._paths_for_sandbox_spec(run.paths),
             "local_deploy": run.local_deploy,
             "continuation": {
                 "is_continuation": run.parent_run_id is not None,
