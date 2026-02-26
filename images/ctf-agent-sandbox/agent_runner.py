@@ -115,6 +115,36 @@ def _list_challenge_artifacts() -> list[str]:
     return sorted(paths)
 
 
+def _render_continuation_context(spec: dict[str, Any]) -> str:
+    continuation = spec.get("continuation")
+    if not isinstance(continuation, dict) or not continuation.get("is_continuation"):
+        return "This run has no parent continuation context."
+
+    parent_run_id = str(continuation.get("parent_run_id") or "unknown")
+    continuation_type = str(continuation.get("type") or "other")
+    depth = continuation.get("depth")
+    message = str(continuation.get("input") or "").strip()
+    mount_path = str(continuation.get("mount_path") or "").strip()
+    lines = [
+        f"- Parent run id: {parent_run_id}",
+        f"- Continuation type: {continuation_type}",
+        f"- Continuation depth: {depth}",
+        "- Operator input:",
+        message or "(none)",
+    ]
+    if mount_path:
+        lines.extend(
+            [
+                f"- Parent context mount: {mount_path}",
+                "  - parent_result.json",
+                "  - parent_readme.md",
+                "  - continuation_request.json",
+            ]
+        )
+    lines.append("- Verify parent context before relying on it.")
+    return "\n".join(lines)
+
+
 def _render_prompt(spec: dict[str, Any]) -> str:
     template = PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
     tooling_guide = (
@@ -124,6 +154,7 @@ def _render_prompt(spec: dict[str, Any]) -> str:
     )
     artifact_list = _list_challenge_artifacts()
     artifacts_preview = "\n".join(f"- {artifact}" for artifact in artifact_list[:200]) or "- (none)"
+    continuation_context = _render_continuation_context(spec)
     return template.format(
         challenge_name=spec.get("challenge_name", "Unknown"),
         category=spec.get("category", "unknown"),
@@ -133,6 +164,7 @@ def _render_prompt(spec: dict[str, Any]) -> str:
         challenge_artifacts=artifacts_preview,
         stop_criteria=json.dumps(spec.get("stop_criteria", {}), indent=2),
         allowed_endpoints=json.dumps(spec.get("allowed_endpoints", []), indent=2),
+        continuation_context=continuation_context,
         tooling_guide=tooling_guide,
     )
 
@@ -761,6 +793,12 @@ def main() -> int:
     print(f"[agent-runner] challenge_artifact_count={len(artifact_list)}", flush=True)
     if artifact_list:
         print(f"[agent-runner] challenge_artifacts_preview={artifact_list[:20]}", flush=True)
+    continuation = spec.get("continuation") if isinstance(spec.get("continuation"), dict) else {}
+    if continuation.get("is_continuation"):
+        print(
+            f"[agent-runner] continuation parent_run_id={continuation.get('parent_run_id')} depth={continuation.get('depth')}",
+            flush=True,
+        )
 
     prompt = _render_prompt(spec)
 

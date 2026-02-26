@@ -14,9 +14,15 @@
 1. `POST /integrations/ctfd/sync` pulls challenges/files from CTFd.
 2. Manifests are upserted into Postgres; files are uploaded to MinIO.
 3. `POST /runs` stores RunSpec-like fields in `runs`, then launches Docker orchestration thread.
+   - `POST /runs/{run_id}/continue` creates a child run linked to the terminal parent run and stores operator continuation input.
 4. Orchestrator hydrates artifacts into `runs/<run_id>/chal`, writes `runs/<run_id>/run/spec.json`, starts sandbox.
    - Challenge artifacts are mounted read-only at `/workspace/chal`.
    - Run workspace is mounted read-write at `/workspace/run`.
+   - For continuation runs with artifact reuse enabled, control plane writes a read-only continuation bundle at `runs/<child_run_id>/continuation`:
+     - `parent_result.json`
+     - `parent_readme.md`
+     - `continuation_request.json`
+   - Docker runner mounts that bundle read-only into the sandbox (`/workspace/continuation` by default).
    - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
    - Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only as seed material; sandbox startup copies it into writable `CODEX_HOME`.
    - If `SANDBOX_CODEX_SKILLS_HOST_PATH` is configured, orchestrator mounts that directory read-only into the run and sandbox startup copies all seeded skill files into writable `CODEX_HOME/skills`.
@@ -25,6 +31,7 @@
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.
+   - Run detail includes lineage view (parent run + child runs) and continuation creation workflow.
 
 ## Extensibility for Kubernetes
 - Core run models (`runs`, `run_results`, RunSpec payload) are runner-agnostic.

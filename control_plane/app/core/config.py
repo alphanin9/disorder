@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     default_cpu_limit: float = Field(default=1.0)
     default_mem_limit: str = Field(default="1g")
     default_pids_limit: int = Field(default=256)
+    enable_run_continuation: bool = Field(default=True)
+    max_continuation_message_chars: int = Field(default=4000)
+    max_continuation_depth: int = Field(default=5)
     sandbox_env_passthrough: str = Field(
         default=(
             "OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_ORG_ID,OPENAI_PROJECT_ID,"

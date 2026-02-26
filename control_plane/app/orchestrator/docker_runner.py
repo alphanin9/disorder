@@ -120,6 +120,7 @@ class DockerRunner:
             auth_mount_volume = self._sandbox_auth_volumes(db=db, run_dir=run_dir, host_run_dir=host_run_dir)
             skills_mount_volume = self._sandbox_codex_skills_volumes()
             ida_mount_volume, ida_env = self._sandbox_ida_mount_and_env()
+            continuation_mount_volume = self._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
 
             volumes = {
                 str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
@@ -128,6 +129,7 @@ class DockerRunner:
             volumes.update(auth_mount_volume)
             volumes.update(skills_mount_volume)
             volumes.update(ida_mount_volume)
+            volumes.update(continuation_mount_volume)
             sandbox_env = self._sandbox_environment()
             sandbox_env.update(ida_env)
 
@@ -459,6 +461,26 @@ class DockerRunner:
             }
         }
 
+    def _sandbox_continuation_volume(self, run: Run, host_run_dir: Path) -> dict[str, dict[str, str]]:
+        mount_path = str((run.paths or {}).get("continuation_mount") or "").strip()
+        if not mount_path:
+            return {}
+
+        local_path = self.settings.runs_dir / str(run.id) / "continuation"
+        host_path = host_run_dir / "continuation"
+        if not local_path.exists() or not local_path.is_dir():
+            print(
+                f"[orchestrator] continuation mount requested for run {run.id} but local context path is missing: {local_path}",
+                flush=True,
+            )
+            return {}
+
+        print(
+            f"[orchestrator] mounting continuation context for run {run.id}: {host_path} -> {mount_path} (ro)",
+            flush=True,
+        )
+        return {str(host_path): {"bind": mount_path, "mode": "ro"}}
+
     def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
         copied = 0
         for file_entry in files:
@@ -604,6 +626,14 @@ class DockerRunner:
             "allowed_endpoints": run.allowed_endpoints,
             "paths": run.paths,
             "local_deploy": run.local_deploy,
+            "continuation": {
+                "is_continuation": run.parent_run_id is not None,
+                "parent_run_id": str(run.parent_run_id) if run.parent_run_id else None,
+                "depth": run.continuation_depth,
+                "input": run.continuation_input,
+                "type": run.continuation_type,
+                "mount_path": (run.paths or {}).get("continuation_mount"),
+            },
         }
 
     def _stream_logs(self, container, log_path: Path) -> None:
