@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     sandbox_ida_mount_path: str = Field(default="/opt/ida")
     sandbox_ida_registry_host_path: str | None = Field(default=None)
     sandbox_ida_accept_eula: bool = Field(default=True)
-    sandbox_ida_eula_versions: str = Field(default="90,91,92")
+    sandbox_ida_eula_versions: str = Field(default="90,91,92,93")
     sandbox_idalib_mcp_port: int = Field(default=8745)
     sandbox_control_plane_url: str | None = Field(default=None)
     sandbox_flag_submit_mcp_enabled: bool = Field(default=False)

@@ -59,6 +59,8 @@ RUN pip install --no-cache-dir \
     pefile \
     pwntools \
     pycryptodome \
+    pyghidra-mcp \
+    pyghidra-mcp-cli \
     ropper \
     sympy \
     uv \
@@ -78,6 +80,29 @@ RUN dpkg --add-architecture i386 && \
     libwine \
     libwine:i386 \
     fonts-wine
+
+# Setup Ghidra installation in sandbox
+# Install GPG
+RUN apt-get install -y --no-install-recommends gpg
+# Setup JDK
+RUN wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
+    | gpg --dearmor \
+    | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
+
+RUN echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
+    | tee /etc/apt/sources.list.d/adoptium.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    temurin-21-jdk
+
+# Download, unzip and copy Ghidra to /opt/ghidra
+RUN wget -qO - https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest \
+    | jq '.assets[0].browser_download_url' | xargs wget -O /tmp/ghidra-latest.zip && \
+    unzip /tmp/ghidra-latest.zip -d /tmp/ghidra-latest && \
+    mv $(find "/tmp/ghidra-latest" -maxdepth 1 -type d -name "ghidra_*_PUBLIC" | head -n1) /opt/ghidra && \
+    rm -rf /tmp/ghidra-latest && rm /tmp/ghidra-latest.zip
+
+ENV GHIDRA_INSTALL_DIR=/opt/ghidra
 
 # Cleanup apt lists
 RUN rm -rf /var/lib/apt/lists/*

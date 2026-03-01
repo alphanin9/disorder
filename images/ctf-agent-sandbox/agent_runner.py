@@ -44,7 +44,9 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _write_result(payload: dict[str, Any]) -> None:
     RUN_DIR.mkdir(parents=True, exist_ok=True)
-    (RUN_DIR / "result.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    (RUN_DIR / "result.json").write_text(
+        json.dumps(payload, indent=2), encoding="utf-8"
+    )
 
 
 def _write_readme(content: str) -> None:
@@ -52,7 +54,9 @@ def _write_readme(content: str) -> None:
     (RUN_DIR / "README.md").write_text(content, encoding="utf-8")
 
 
-def _copy_seed_tree(seed_dir: Path, target_root: Path, file_mode: int | None = None) -> int:
+def _copy_seed_tree(
+    seed_dir: Path, target_root: Path, file_mode: int | None = None
+) -> int:
     if not seed_dir.exists() or not seed_dir.is_dir():
         return 0
 
@@ -76,14 +80,21 @@ def _copy_seed_tree(seed_dir: Path, target_root: Path, file_mode: int | None = N
 def _seed_writable_codex_home() -> None:
     codex_home = _codex_home_path()
     codex_home.mkdir(parents=True, exist_ok=True)
-    auth_seed_dir = Path(os.getenv("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex"))
+    auth_seed_dir = Path(
+        os.getenv("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
+    )
     _copy_seed_tree(auth_seed_dir, codex_home, file_mode=0o600)
 
-    skills_seed_dir = Path(os.getenv("CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills"))
+    skills_seed_dir = Path(
+        os.getenv("CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills")
+    )
     skills_dir = Path(os.getenv("CODEX_SKILLS_DIR") or (codex_home / "skills"))
     copied_skills = _copy_seed_tree(skills_seed_dir, skills_dir)
     if copied_skills > 0:
-        print(f"[agent-runner] seeded {copied_skills} Codex skill files into {skills_dir}", flush=True)
+        print(
+            f"[agent-runner] seeded {copied_skills} Codex skill files into {skills_dir}",
+            flush=True,
+        )
 
 
 def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
@@ -153,7 +164,9 @@ def _render_prompt(spec: dict[str, Any]) -> str:
         else "Tooling guide unavailable."
     )
     artifact_list = _list_challenge_artifacts()
-    artifacts_preview = "\n".join(f"- {artifact}" for artifact in artifact_list[:200]) or "- (none)"
+    artifacts_preview = (
+        "\n".join(f"- {artifact}" for artifact in artifact_list[:200]) or "- (none)"
+    )
     continuation_context = _render_continuation_context(spec)
     return template.format(
         challenge_name=spec.get("challenge_name", "Unknown"),
@@ -207,7 +220,9 @@ def _mock_backend(spec: dict[str, Any]) -> None:
                 "Run python solve.py",
             ],
             "key_findings": ["Mock backend executed successfully"],
-            "evidence": [{"kind": "file", "ref": "solve.py", "summary": "Mock solve scaffold"}],
+            "evidence": [
+                {"kind": "file", "ref": "solve.py", "summary": "Mock solve scaffold"}
+            ],
             "notes": "This result is synthetic for harness validation",
         }
     )
@@ -229,7 +244,11 @@ def _codex_auth_source() -> str | None:
     )
     for file_path in direct_files:
         try:
-            if file_path.exists() and file_path.is_file() and file_path.stat().st_size > 2:
+            if (
+                file_path.exists()
+                and file_path.is_file()
+                and file_path.stat().st_size > 2
+            ):
                 return f"filesystem:{file_path}"
         except OSError:
             continue
@@ -237,7 +256,10 @@ def _codex_auth_source() -> str | None:
     try:
         for file_path in codex_home.rglob("*.json"):
             name = file_path.name.lower()
-            if any(token in name for token in ("auth", "token", "credential")) and file_path.stat().st_size > 2:
+            if (
+                any(token in name for token in ("auth", "token", "credential"))
+                and file_path.stat().st_size > 2
+            ):
                 return f"filesystem:{file_path}"
     except OSError:
         return None
@@ -283,7 +305,9 @@ def _managed_mcp_config_block(ida_url: str | None) -> str:
     lines: list[str] = []
     if _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
         server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
-        mcp_script = os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py")
+        mcp_script = os.getenv(
+            "CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py"
+        )
         mcp_args = [mcp_script, "--spec", SPEC_PATH.as_posix()]
         lines.extend(
             [
@@ -296,7 +320,9 @@ def _managed_mcp_config_block(ida_url: str | None) -> str:
 
     if _env_truthy("CODEX_FLAG_SUBMIT_MCP_ENABLED", default=False):
         server_command = os.getenv("CODEX_FLAG_SUBMIT_MCP_COMMAND", "python")
-        mcp_script = os.getenv("CODEX_FLAG_SUBMIT_MCP_SCRIPT", "/usr/local/bin/flag_submit_mcp.py")
+        mcp_script = os.getenv(
+            "CODEX_FLAG_SUBMIT_MCP_SCRIPT", "/usr/local/bin/flag_submit_mcp.py"
+        )
         mcp_args = [mcp_script, "--spec", SPEC_PATH.as_posix()]
         lines.extend(
             [
@@ -356,7 +382,9 @@ def _idalib_mcp_url(port: int) -> str:
     return os.getenv("SANDBOX_IDALIB_MCP_URL", f"http://127.0.0.1:{port}/mcp")
 
 
-def _wait_for_port_listen(host: str, port: int, timeout_seconds: float, process: subprocess.Popen[str]) -> bool:
+def _wait_for_port_listen(
+    host: str, port: int, timeout_seconds: float, process: subprocess.Popen[str]
+) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -385,46 +413,73 @@ def _stop_background_process(process: subprocess.Popen[str] | None, name: str) -
 
 def _accept_ida_eula(ida_install_path: str) -> bool:
     if not _env_truthy("SANDBOX_IDA_ACCEPT_EULA", default=True):
-        print("[agent-runner] IDA EULA acceptance disabled by SANDBOX_IDA_ACCEPT_EULA=0", flush=True)
+        print(
+            "[agent-runner] IDA EULA acceptance disabled by SANDBOX_IDA_ACCEPT_EULA=0",
+            flush=True,
+        )
         return True
 
     os.environ["IDADIR"] = ida_install_path
     try:
         import idapro  # noqa: F401
+
+        # Block Zed autoformat from messing import order up - "idapro" needs to be imported first
+        _ = "ZED_FORMATTING_GATE"
         import ida_registry  # type: ignore
+
     except Exception as exc:
-        print(f"[agent-runner] IDA EULA acceptance failed: idapro/ida_registry unavailable ({exc})", flush=True)
+        print(
+            f"[agent-runner] IDA EULA acceptance failed: idapro/ida_registry unavailable ({exc})",
+            flush=True,
+        )
         return False
 
-    raw_versions = os.getenv("SANDBOX_IDA_EULA_VERSIONS", "90,91,92")
+    raw_versions = os.getenv("SANDBOX_IDA_EULA_VERSIONS", "90,91,92,93")
     versions = [token.strip() for token in raw_versions.split(",") if token.strip()]
     if not versions:
-        versions = ["90", "91", "92"]
+        versions = ["90", "91", "92", "93"]
 
     for version in versions:
         key = f"EULA {version}"
         try:
             ida_registry.reg_write_int(key, 1)
         except Exception as exc:
-            print(f"[agent-runner] IDA EULA acceptance failed writing '{key}': {exc}", flush=True)
+            print(
+                f"[agent-runner] IDA EULA acceptance failed writing '{key}': {exc}",
+                flush=True,
+            )
             return False
 
-    print(f"[agent-runner] IDA EULA accepted for versions: {', '.join(versions)}", flush=True)
+    print(
+        f"[agent-runner] IDA EULA accepted for versions: {', '.join(versions)}",
+        flush=True,
+    )
     return True
 
 
 def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str | None]:
     if not _env_truthy("SANDBOX_IDA_ENABLED", default=False):
-        print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True)
+        print(
+            "[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True
+        )
         return None, None
 
-    ida_install_path = os.getenv("SANDBOX_IDA_INSTALL_PATH", "").strip() or os.getenv("IDADIR", "").strip()
+    ida_install_path = (
+        os.getenv("SANDBOX_IDA_INSTALL_PATH", "").strip()
+        or os.getenv("IDADIR", "").strip()
+    )
     if not ida_install_path:
-        print("[agent-runner] IDA MCP disabled: SANDBOX_IDA_INSTALL_PATH is not set", flush=True)
+        print(
+            "[agent-runner] IDA MCP disabled: SANDBOX_IDA_INSTALL_PATH is not set",
+            flush=True,
+        )
         return None, None
 
     if not Path(ida_install_path).exists():
-        print(f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}", flush=True)
+        print(
+            f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}",
+            flush=True,
+        )
         return None, None
 
     if not _accept_ida_eula(ida_install_path):
@@ -434,11 +489,17 @@ def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str 
     command_template = os.getenv("SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp")
     command = shlex.split(command_template)
     if not command:
-        print("[agent-runner] IDA MCP disabled: SANDBOX_IDALIB_MCP_COMMAND is empty", flush=True)
+        print(
+            "[agent-runner] IDA MCP disabled: SANDBOX_IDALIB_MCP_COMMAND is empty",
+            flush=True,
+        )
         return None, None
 
     if shutil.which(command[0]) is None:
-        print(f"[agent-runner] IDA MCP disabled: command not found: {command[0]}", flush=True)
+        print(
+            f"[agent-runner] IDA MCP disabled: command not found: {command[0]}",
+            flush=True,
+        )
         return None, None
 
     port = _parse_port_env("SANDBOX_IDALIB_MCP_PORT", 8745)
@@ -464,14 +525,70 @@ def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str 
         cwd=RUN_DIR,
         env=process_env,
     )
-    if not _wait_for_port_listen("127.0.0.1", port, timeout_seconds=timeout_seconds, process=process):
-        print("[agent-runner] IDA MCP failed to become ready; disabling for this run", flush=True)
+    if not _wait_for_port_listen(
+        "127.0.0.1", port, timeout_seconds=timeout_seconds, process=process
+    ):
+        print(
+            "[agent-runner] IDA MCP failed to become ready; disabling for this run",
+            flush=True,
+        )
         _stop_background_process(process, "idalib-mcp")
         return None, None
 
     url = _idalib_mcp_url(port)
     print(f"[agent-runner] IDA MCP enabled at {url}", flush=True)
     return process, url
+
+
+def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
+    # Project path is hardcoded at the moment - no point making it non-hardcoded
+    # Due to CWD this will write it into run_dir
+    command = shlex.split(
+        "pyghidra-mcp --transport streamable-http --project-path .pyghidra_project"
+    )
+
+    if shutil.which(command[0]) is None:
+        print(
+            f"[agent-runner] Pyghidra MCP disabled: command not found: {command[0]}",
+            flush=True,
+        )
+        return None
+
+    # Hardcoded for simplicity, fix later
+    port = 8000
+    # Note: Pyghidra seems to require a lot more startup time than IDA MCP
+    timeout_seconds = 60
+
+    print(f"[agent-runner] starting pyghidra MCP: {' '.join(command)}", flush=True)
+
+    process_env = os.environ.copy()
+
+    # Note: hardcoded due to installation process in Dockerfile
+    process_env["GHIDRA_INSTALL_DIR"] = "/opt/ghidra"
+
+    # Pyghidra MCP is a lot spammier than IDA MCP, so we filter the logs
+    process = subprocess.Popen(
+        command,
+        cwd=RUN_DIR,
+        env=process_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    if not _wait_for_port_listen(
+        "127.0.0.1", port, timeout_seconds=timeout_seconds, process=process
+    ):
+        print(
+            "[agent-runner] Ghidra MCP failed to become ready; disabling for this run",
+            flush=True,
+        )
+        _stop_background_process(process, "pyghidra-mcp")
+        return None
+
+    # URL hardcoded at the moment, fix later
+    print(f"[agent-runner] PyGhidra MCP enabled at http://127.0.0.1:{port}", flush=True)
+
+    return process
 
 
 def _resolve_backend_command(
@@ -487,7 +604,12 @@ def _resolve_backend_command(
                 budgets = spec_payload.get("budgets")
                 if isinstance(budgets, dict):
                     raw_effort = budgets.get("reasoning_effort")
-            if isinstance(raw_effort, str) and raw_effort.lower() in {"low", "medium", "high", "xhigh"}:
+            if isinstance(raw_effort, str) and raw_effort.lower() in {
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+            }:
                 reasoning_effort = raw_effort.lower()
         except Exception:
             reasoning_effort = "medium"
@@ -521,13 +643,16 @@ def _resolve_backend_command(
     command_template = os.getenv("CLAUDE_CODE_CLI_CMD")
     if not command_template:
         return [], None, ""
-    formatted = command_template.format(prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR))
+    formatted = command_template.format(
+        prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR)
+    )
     return shlex.split(formatted), None, "custom-claude-command"
 
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
     idalib_process: subprocess.Popen[str] | None = None
     ida_mcp_url: str | None = None
+
     if backend == "codex":
         auth_source = _codex_auth_source()
         if auth_source is None:
@@ -540,6 +665,8 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             return 2
         idalib_process, ida_mcp_url = _start_idalib_mcp_if_available()
         _write_managed_codex_mcp_config(ida_url=ida_mcp_url)
+
+    pyghidra_process: subprocess.Popen[str] | None = _start_pyghidra_mcp()
 
     if backend == "codex":
         backend_name = "Codex CLI"
@@ -562,12 +689,14 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         _write_readme("# Blocked\n\n" + error + "\n")
         _write_result(_blocked_result(spec, error))
         _stop_background_process(idalib_process, "idalib-mcp")
+        _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     if shutil.which(command[0]) is None:
         _write_readme("# Blocked\n\nConfigured backend binary not found.\n")
         _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}"))
         _stop_background_process(idalib_process, "idalib-mcp")
+        _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     print(
@@ -587,7 +716,10 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
 
         stdout_chunks: list[str] = []
         stderr_chunks: list[str] = []
-        stream_stderr_live = not (backend == "codex" and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True))
+        stream_stderr_live = not (
+            backend == "codex"
+            and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True)
+        )
 
         def _pump(stream, sink, printer, live: bool) -> None:
             if stream is None:
@@ -603,7 +735,11 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                 except Exception:
                     pass
 
-        stdout_thread = threading.Thread(target=_pump, args=(process.stdout, stdout_chunks, sys.stdout, True), daemon=True)
+        stdout_thread = threading.Thread(
+            target=_pump,
+            args=(process.stdout, stdout_chunks, sys.stdout, True),
+            daemon=True,
+        )
         stderr_thread = threading.Thread(
             target=_pump,
             args=(process.stderr, stderr_chunks, sys.stderr, stream_stderr_live),
@@ -640,12 +776,23 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         return returncode
     finally:
         _stop_background_process(idalib_process, "idalib-mcp")
+        _stop_background_process(pyghidra_process, "pyghidra-mcp")
 
 
-def _backend_failure_message(backend: str, returncode: int, stdout: str, stderr: str) -> str:
+def _backend_failure_message(
+    backend: str, returncode: int, stdout: str, stderr: str
+) -> str:
     output = f"{stdout}\n{stderr}".lower()
     if backend == "codex":
-        if any(token in output for token in ("401", "unauthorized", "invalid api key", "authentication failed")):
+        if any(
+            token in output
+            for token in (
+                "401",
+                "unauthorized",
+                "invalid api key",
+                "authentication failed",
+            )
+        ):
             return (
                 "Codex authentication failed. Set OPENAI_API_KEY (or CODEX_API_KEY), "
                 "or verify uploaded tagged Codex auth files are valid for this run."
@@ -667,14 +814,20 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
         return _blocked_result(spec, "result.json did not contain an object")
 
     challenge_id = str(raw_result.get("challenge_id") or spec.get("challenge_id") or "")
-    challenge_name = str(raw_result.get("challenge_name") or spec.get("challenge_name") or "")
+    challenge_name = str(
+        raw_result.get("challenge_name") or spec.get("challenge_name") or ""
+    )
 
     raw_status = str(raw_result.get("status") or "").strip().lower()
     if raw_status in RESULT_STATUSES:
         status = raw_status
-    elif raw_result.get("flag_found") is True or (raw_result.get("flag") and "flag" in raw_status):
+    elif raw_result.get("flag_found") is True or (
+        raw_result.get("flag") and "flag" in raw_status
+    ):
         status = "flag_found"
-    elif "deliverable" in raw_status or isinstance(raw_result.get("deliverables"), list):
+    elif "deliverable" in raw_status or isinstance(
+        raw_result.get("deliverables"), list
+    ):
         status = "deliverable_produced"
     else:
         status = "blocked"
@@ -695,12 +848,21 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
     elif flag is not None:
         flag = str(flag)
 
-    raw_fv = raw_result.get("flag_verification") if isinstance(raw_result.get("flag_verification"), dict) else {}
+    raw_fv = (
+        raw_result.get("flag_verification")
+        if isinstance(raw_result.get("flag_verification"), dict)
+        else {}
+    )
     method = str(raw_fv.get("method") or "").strip().lower()
     if method not in FLAG_VERIFICATION_METHODS:
         method = "regex_only" if status == "flag_found" else "none"
     verified = bool(raw_fv.get("verified", False))
-    details = str(raw_fv.get("details") or raw_result.get("summary") or raw_result.get("notes") or "").strip()
+    details = str(
+        raw_fv.get("details")
+        or raw_result.get("summary")
+        or raw_result.get("notes")
+        or ""
+    ).strip()
     if not details:
         if status == "flag_found":
             details = "Flag reported by backend but not yet verified."
@@ -714,7 +876,9 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
     if isinstance(raw_deliverables, list):
         for entry in raw_deliverables:
             if isinstance(entry, str):
-                deliverables.append({"path": entry, "type": "other", "how_to_run": "See README.md"})
+                deliverables.append(
+                    {"path": entry, "type": "other", "how_to_run": "See README.md"}
+                )
                 continue
             if not isinstance(entry, dict):
                 continue
@@ -745,7 +909,13 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
         for entry in raw_result.get("evidence_files", []):
             ref = str(entry).strip()
             if ref:
-                evidence.append({"kind": "file", "ref": ref, "summary": "Referenced by backend output."})
+                evidence.append(
+                    {
+                        "kind": "file",
+                        "ref": ref,
+                        "summary": "Referenced by backend output.",
+                    }
+                )
 
     return {
         "challenge_id": challenge_id,
@@ -762,7 +932,9 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
         "repro_steps": _string_list(raw_result.get("repro_steps")),
         "key_findings": _string_list(raw_result.get("key_findings")),
         "evidence": evidence,
-        "notes": str(raw_result.get("notes") or raw_result.get("summary") or "").strip(),
+        "notes": str(
+            raw_result.get("notes") or raw_result.get("summary") or ""
+        ).strip(),
     }
 
 
@@ -800,13 +972,24 @@ def main() -> int:
     artifact_list = _list_challenge_artifacts()
 
     print("[agent-runner] challenge triage", flush=True)
-    print(f"[agent-runner] challenge={spec.get('challenge_name')} backend={backend}", flush=True)
-    print(f"[agent-runner] allowed_endpoints={spec.get('allowed_endpoints', [])}", flush=True)
+    print(
+        f"[agent-runner] challenge={spec.get('challenge_name')} backend={backend}",
+        flush=True,
+    )
+    print(
+        f"[agent-runner] allowed_endpoints={spec.get('allowed_endpoints', [])}",
+        flush=True,
+    )
     print(f"[agent-runner] stop_criteria={spec.get('stop_criteria', {})}", flush=True)
     print(f"[agent-runner] challenge_artifact_count={len(artifact_list)}", flush=True)
     if artifact_list:
-        print(f"[agent-runner] challenge_artifacts_preview={artifact_list[:20]}", flush=True)
-    continuation = spec.get("continuation") if isinstance(spec.get("continuation"), dict) else {}
+        print(
+            f"[agent-runner] challenge_artifacts_preview={artifact_list[:20]}",
+            flush=True,
+        )
+    continuation = (
+        spec.get("continuation") if isinstance(spec.get("continuation"), dict) else {}
+    )
     if continuation.get("is_continuation"):
         print(
             f"[agent-runner] continuation parent_run_id={continuation.get('parent_run_id')} depth={continuation.get('depth')}",

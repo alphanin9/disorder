@@ -8,7 +8,12 @@ from types import SimpleNamespace
 
 
 def _load_agent_runner_module():
-    module_path = Path(__file__).resolve().parents[2] / "images" / "ctf-agent-sandbox" / "agent_runner.py"
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "images"
+        / "ctf-agent-sandbox"
+        / "agent_runner.py"
+    )
     spec = importlib.util.spec_from_file_location("agent_runner_module", module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError("failed to load agent runner module")
@@ -42,7 +47,13 @@ def test_normalize_result_payload_accepts_flag_output() -> None:
     raw = {
         "status": "flag_found",
         "flag": "flag{demo}",
-        "deliverables": [{"path": "solve.py", "type": "solve_script", "how_to_run": "python solve.py"}],
+        "deliverables": [
+            {
+                "path": "solve.py",
+                "type": "solve_script",
+                "how_to_run": "python solve.py",
+            }
+        ],
     }
 
     normalized = module._normalize_result_payload(spec, raw)
@@ -58,11 +69,23 @@ def test_normalize_result_payload_preserves_math_deliverables_and_evidence() -> 
         "status": "deliverable_produced",
         "deliverables": [
             {"path": "solve.sage", "type": "other", "how_to_run": "sage solve.sage"},
-            {"path": "solve.py", "type": "solve_script", "how_to_run": "python solve.py"},
+            {
+                "path": "solve.py",
+                "type": "solve_script",
+                "how_to_run": "python solve.py",
+            },
         ],
         "evidence": [
-            {"kind": "command", "ref": "sage solve.sage", "summary": "Recovered private exponent."},
-            {"kind": "not-a-kind", "ref": "matrix.txt", "summary": "Intermediate matrix output."},
+            {
+                "kind": "command",
+                "ref": "sage solve.sage",
+                "summary": "Recovered private exponent.",
+            },
+            {
+                "kind": "not-a-kind",
+                "ref": "matrix.txt",
+                "summary": "Intermediate matrix output.",
+            },
         ],
     }
 
@@ -92,7 +115,9 @@ def test_codex_command_defaults_without_inline_mcp_overrides(tmp_path) -> None:
     assert 'model_reasoning_effort="medium"' in joined
 
 
-def test_write_managed_codex_mcp_config_includes_flag_verify_by_default(monkeypatch, tmp_path) -> None:
+def test_write_managed_codex_mcp_config_includes_flag_verify_by_default(
+    monkeypatch, tmp_path
+) -> None:
     module = _load_agent_runner_module()
     codex_home = tmp_path / "codex-home"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
@@ -103,10 +128,15 @@ def test_write_managed_codex_mcp_config_includes_flag_verify_by_default(monkeypa
     rendered = config_path.read_text(encoding="utf-8")
     assert "[mcp_servers.flag_verify]" in rendered
     assert 'command = "python"' in rendered
-    assert 'args = ["/usr/local/bin/flag_verify_mcp.py", "--spec", "/workspace/run/spec.json"]' in rendered
+    assert (
+        'args = ["/usr/local/bin/flag_verify_mcp.py", "--spec", "/workspace/run/spec.json"]'
+        in rendered
+    )
 
 
-def test_write_managed_codex_mcp_config_can_disable_flag_verify(monkeypatch, tmp_path) -> None:
+def test_write_managed_codex_mcp_config_can_disable_flag_verify(
+    monkeypatch, tmp_path
+) -> None:
     module = _load_agent_runner_module()
     codex_home = tmp_path / "codex-home"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
@@ -115,10 +145,14 @@ def test_write_managed_codex_mcp_config_can_disable_flag_verify(monkeypatch, tmp
     module._write_managed_codex_mcp_config()
     config_path = codex_home / "config.toml"
     if config_path.exists():
-        assert "[mcp_servers.flag_verify]" not in config_path.read_text(encoding="utf-8")
+        assert "[mcp_servers.flag_verify]" not in config_path.read_text(
+            encoding="utf-8"
+        )
 
 
-def test_write_managed_codex_mcp_config_can_enable_flag_submit(monkeypatch, tmp_path) -> None:
+def test_write_managed_codex_mcp_config_can_enable_flag_submit(
+    monkeypatch, tmp_path
+) -> None:
     module = _load_agent_runner_module()
     codex_home = tmp_path / "codex-home"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
@@ -127,7 +161,10 @@ def test_write_managed_codex_mcp_config_can_enable_flag_submit(monkeypatch, tmp_
     module._write_managed_codex_mcp_config()
     rendered = (codex_home / "config.toml").read_text(encoding="utf-8")
     assert "[mcp_servers.flag_submit]" in rendered
-    assert 'args = ["/usr/local/bin/flag_submit_mcp.py", "--spec", "/workspace/run/spec.json"]' in rendered
+    assert (
+        'args = ["/usr/local/bin/flag_submit_mcp.py", "--spec", "/workspace/run/spec.json"]'
+        in rendered
+    )
 
 
 def test_write_managed_codex_mcp_config_includes_ida_url(monkeypatch, tmp_path) -> None:
@@ -166,17 +203,19 @@ def test_accept_ida_eula_disabled_by_env(monkeypatch) -> None:
 def test_accept_ida_eula_writes_expected_registry_keys(monkeypatch) -> None:
     module = _load_agent_runner_module()
     calls: list[tuple[str, int]] = []
-    fake_registry = SimpleNamespace(reg_write_int=lambda key, value: calls.append((key, value)))
+    fake_registry = SimpleNamespace(
+        reg_write_int=lambda key, value: calls.append((key, value))
+    )
 
     monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "1")
-    monkeypatch.setenv("SANDBOX_IDA_EULA_VERSIONS", "90,91,92")
+    monkeypatch.setenv("SANDBOX_IDA_EULA_VERSIONS", "90,91,92,93")
     monkeypatch.setitem(sys.modules, "idapro", object())
     monkeypatch.setitem(sys.modules, "ida_registry", fake_registry)
 
     accepted = module._accept_ida_eula("/opt/ida")
     assert accepted is True
     assert os.environ.get("IDADIR") == "/opt/ida"
-    assert calls == [("EULA 90", 1), ("EULA 91", 1), ("EULA 92", 1)]
+    assert calls == [("EULA 90", 1), ("EULA 91", 1), ("EULA 92", 1), ("EULA 93", 1)]
 
 
 def test_seed_writable_codex_home_copies_auth_seed(monkeypatch, tmp_path) -> None:
@@ -200,9 +239,13 @@ def test_seed_writable_codex_home_copies_skill_seed(monkeypatch, tmp_path) -> No
     skills_seed_dir = tmp_path / "skills-seed"
     codex_home = tmp_path / "codex-home"
     (skills_seed_dir / "ctf-player").mkdir(parents=True)
-    (skills_seed_dir / "ctf-player" / "SKILL.md").write_text("# ctf-player", encoding="utf-8")
+    (skills_seed_dir / "ctf-player" / "SKILL.md").write_text(
+        "# ctf-player", encoding="utf-8"
+    )
     (skills_seed_dir / "ctf-player" / "references").mkdir(parents=True)
-    (skills_seed_dir / "ctf-player" / "references" / "notes.txt").write_text("hello", encoding="utf-8")
+    (skills_seed_dir / "ctf-player" / "references" / "notes.txt").write_text(
+        "hello", encoding="utf-8"
+    )
 
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("CODEX_SKILLS_SEED_DIR", str(skills_seed_dir))
