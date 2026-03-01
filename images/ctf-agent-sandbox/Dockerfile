@@ -59,6 +59,8 @@ RUN pip install --no-cache-dir \
     pefile \
     pwntools \
     pycryptodome \
+    pyghidra-mcp \
+    pyghidra-mcp-cli \
     ropper \
     sympy \
     uv \

@@ -38,8 +38,9 @@ Reverse engineering:
   - `idalib-mcp` default endpoint is `http://127.0.0.1:8745/mcp`.
   - Prefer extracting structured outputs (functions, xrefs, pseudocode) into `/workspace/run`.
   - When working with the IDA MCP, keep in mind that `/workspace/chal` is read-only and autoanalysis will not be able to open the artifact due to it creating files in the same directory. If the autoanalysis fails to open the file, copy the file into `/workspace/run`.
-  - If IDA MCP is unavailable for this run, continue with binutils-based reversing and document that fallback.
-- If code obfuscation or anti-reverse engineering tooling techniques are suspected **verify IDA MCP results against binutils-based reversing and document that.**
+  - If IDA MCP is unavailable for this run, continue with binutils/Ghidra MCP-based reversing and document that fallback.
+- A headless Ghidra instance is present and is accessible via `pyghidra-mcp-cli`. If IDA is not available or is suboptimal for the challenge (exotic architecture, decompilation fails on key functions), use Ghidra for decompilation and reversing-heavy workloads.
+- If code obfuscation or anti-reverse engineering tooling techniques are suspected **verify decompiler MCP results against binutils-based reversing and document that.**
   - Examples of potential obfuscation/antidebug/anti-RE tooling:
     - Flag computations do not return correct flag
     - Binary behavior changes for no discernible reason between being run under debugger and normally
