@@ -547,6 +547,13 @@ def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
         "pyghidra-mcp --transport streamable-http --project-path .pyghidra_project"
     )
 
+    if shutil.which(command[0]) is None:
+        print(
+            f"[agent-runner] Pyghidra MCP disabled: command not found: {command[0]}",
+            flush=True,
+        )
+        return None
+
     # Hardcoded for simplicity, fix later
     port = 8000
     # Note: Pyghidra seems to require a lot more startup time than IDA MCP

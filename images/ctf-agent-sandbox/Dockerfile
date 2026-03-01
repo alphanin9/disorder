@@ -100,7 +100,7 @@ RUN wget -qO - https://api.github.com/repos/NationalSecurityAgency/ghidra/releas
     | jq '.assets[0].browser_download_url' | xargs wget -O /tmp/ghidra-latest.zip && \
     unzip /tmp/ghidra-latest.zip -d /tmp/ghidra-latest && \
     mv $(find "/tmp/ghidra-latest" -maxdepth 1 -type d -name "ghidra_*_PUBLIC" | head -n1) /opt/ghidra && \
-    rm -rf /tmp/ghidra-latest
+    rm -rf /tmp/ghidra-latest && rm /tmp/ghidra-latest.zip
 
 ENV GHIDRA_INSTALL_DIR=/opt/ghidra
 
