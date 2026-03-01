@@ -541,9 +541,10 @@ def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str 
 
 
 def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
-    # Project path is hardcoded at the moment - there's no real point making it write in a saved directory
+    # Project path is hardcoded at the moment - no point making it non-hardcoded
+    # Due to CWD this will write it into run_dir
     command = shlex.split(
-        "pyghidra-mcp --transport streamable-http --project-path /tmp/pyghidra"
+        "pyghidra-mcp --transport streamable-http --project-path .pyghidra_project"
     )
 
     # Hardcoded for simplicity, fix later
@@ -563,8 +564,8 @@ def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
         command,
         cwd=RUN_DIR,
         env=process_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     if not _wait_for_port_listen(
