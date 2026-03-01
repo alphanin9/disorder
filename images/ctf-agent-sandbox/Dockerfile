@@ -47,8 +47,7 @@ RUN wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod
     apt-get update && \
     apt-get install -y \
     dotnet-sdk-8.0 \
-    dotnet-sdk-10.0 && \
-    rm -rf /var/lib/apt/lists/*
+    dotnet-sdk-10.0
 
 RUN dotnet tool install ilspycmd
 
@@ -68,6 +67,20 @@ RUN pip install --no-cache-dir \
 
 RUN wget --https-only --secure-protocol=TLSv1_2 -qO- 'https://install.pwndbg.re' \
     | sh -s -- -t pwndbg-gdb
+
+# Setup Wine
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    wine \
+    wine32 \
+    wine64 \
+    libwine \
+    libwine:i386 \
+    fonts-wine
+
+# Cleanup apt lists
+RUN rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 -s /bin/bash ctf && \
     mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
