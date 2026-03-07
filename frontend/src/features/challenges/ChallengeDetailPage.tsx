@@ -10,6 +10,7 @@ import type { ChallengeArtifact, RunCreateRequest } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { inputClasses } from "@/components/ui/forms";
 import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 import { formatDateTime } from "@/features/runs/utils";
 
@@ -246,23 +247,23 @@ export function ChallengeDetailPage() {
         {challengeQuery.data ? (
           <>
             <h2 className="text-xl font-bold">{challengeQuery.data.name}</h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-ink-muted">
               {challengeQuery.data.ctf_name ?? "Unknown CTF"} | {challengeQuery.data.category} | {challengeQuery.data.points} pts
             </p>
 
             <section className="mt-6">
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Description</h3>
-              <pre className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm leading-relaxed text-slate-800">
+              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-subtle">Description</h3>
+              <pre className="whitespace-pre-wrap rounded-lg bg-surface-muted p-3 text-sm leading-relaxed text-ink">
                 {challengeQuery.data.description_md}
               </pre>
             </section>
 
             <section className="mt-6">
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Artifacts</h3>
-              {artifacts.length === 0 ? <p className="text-sm text-slate-600">No artifacts attached.</p> : null}
+              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-subtle">Artifacts</h3>
+              {artifacts.length === 0 ? <p className="text-sm text-ink-muted">No artifacts attached.</p> : null}
               <ul className="space-y-2 text-sm">
                 {artifacts.map((artifact) => (
-                  <li key={artifact.object_key} className="rounded-md bg-slate-50 px-3 py-2">
+                  <li key={artifact.object_key} className="rounded-md bg-surface-muted px-3 py-2">
                     {artifact.name}
                   </li>
                 ))}
@@ -270,7 +271,7 @@ export function ChallengeDetailPage() {
             </section>
 
             <section className="mt-6">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Edit Challenge</h3>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-subtle">Edit Challenge</h3>
               <form
                 className="space-y-3"
                 onSubmit={editForm.handleSubmit((values) => {
@@ -281,7 +282,7 @@ export function ChallengeDetailPage() {
                   <label className="mb-1 block text-sm font-medium" htmlFor="edit_ctf_id">
                     CTF
                   </label>
-                  <select id="edit_ctf_id" className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("ctf_id")}>
+                  <select id="edit_ctf_id" className={inputClasses} {...editForm.register("ctf_id")}>
                     <option value="">Select CTF</option>
                     {(ctfQuery.data?.items ?? []).map((ctf) => (
                       <option key={ctf.id} value={ctf.id}>
@@ -296,13 +297,13 @@ export function ChallengeDetailPage() {
                     <label className="mb-1 block text-sm font-medium" htmlFor="edit_name">
                       Name
                     </label>
-                    <input id="edit_name" className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("name")} />
+                    <input id="edit_name" className={inputClasses} {...editForm.register("name")} />
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium" htmlFor="edit_category">
                       Category
                     </label>
-                    <input id="edit_category" className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("category")} />
+                    <input id="edit_category" className={inputClasses} {...editForm.register("category")} />
                   </div>
                 </div>
 
@@ -310,7 +311,7 @@ export function ChallengeDetailPage() {
                   <label className="mb-1 block text-sm font-medium" htmlFor="edit_points">
                     Points
                   </label>
-                  <input id="edit_points" type="number" min={0} className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("points")} />
+                  <input id="edit_points" type="number" min={0} className={inputClasses} {...editForm.register("points")} />
                 </div>
 
                 <div>
@@ -319,7 +320,7 @@ export function ChallengeDetailPage() {
                   </label>
                   <textarea
                     id="edit_description_md"
-                    className="min-h-28 w-full rounded-md border border-slate-300 px-3 py-2"
+                    className={`${inputClasses} min-h-28`}
                     {...editForm.register("description_md")}
                   />
                 </div>
@@ -328,22 +329,22 @@ export function ChallengeDetailPage() {
                   <label className="mb-1 block text-sm font-medium" htmlFor="edit_flag_regex">
                     Challenge Flag Regex Override
                   </label>
-                  <input id="edit_flag_regex" className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("flag_regex")} />
-                  <p className="mt-1 text-xs text-slate-600">Leave blank to inherit CTF default regex.</p>
+                  <input id="edit_flag_regex" className={inputClasses} {...editForm.register("flag_regex")} />
+                  <p className="mt-1 text-xs text-ink-muted">Leave blank to inherit CTF default regex.</p>
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-medium">Artifacts</label>
                   <ArtifactDropzone disabled={uploadArtifactMutation.isPending} onFilesSelected={onArtifactFilesSelected} />
-                  {uploadArtifactMutation.isPending ? <p className="mt-1 text-xs text-slate-600">Uploading artifact...</p> : null}
+                  {uploadArtifactMutation.isPending ? <p className="mt-1 text-xs text-ink-muted">Uploading artifact...</p> : null}
                   {uploadArtifactMutation.isError ? <p className="mt-1 text-xs text-danger">Failed to upload one or more artifacts.</p> : null}
 
                   {artifacts.length > 0 ? (
                     <ul className="mt-3 space-y-2 text-sm">
                       {artifacts.map((artifact) => (
-                        <li key={artifact.object_key} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
+                        <li key={artifact.object_key} className="flex items-center justify-between rounded-md bg-surface-muted px-3 py-2">
                           <span>
-                            {artifact.name} <span className="text-xs text-slate-500">({artifact.size_bytes} bytes)</span>
+                            {artifact.name} <span className="text-xs text-ink-subtle">({artifact.size_bytes} bytes)</span>
                           </span>
                           <button
                             type="button"
@@ -358,7 +359,7 @@ export function ChallengeDetailPage() {
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-2 text-xs text-slate-600">No artifacts attached.</p>
+                    <p className="mt-2 text-xs text-ink-muted">No artifacts attached.</p>
                   )}
                 </div>
 
@@ -386,7 +387,7 @@ export function ChallengeDetailPage() {
             <label className="mb-1 block text-sm font-medium" htmlFor="backend">
               Backend
             </label>
-            <select id="backend" className="w-full rounded-md border border-slate-300 px-3 py-2" {...runForm.register("backend")}>
+            <select id="backend" className={inputClasses} {...runForm.register("backend")}>
               <option value="mock">mock</option>
               <option value="codex">codex</option>
               <option value="claude_code">claude_code</option>
@@ -397,7 +398,7 @@ export function ChallengeDetailPage() {
             <label className="mb-1 block text-sm font-medium" htmlFor="goal">
               Run Goal
             </label>
-            <select id="goal" className="w-full rounded-md border border-slate-300 px-3 py-2" {...runForm.register("goal")}>
+            <select id="goal" className={inputClasses} {...runForm.register("goal")}>
               <option value="flag">Keep going until flag is found</option>
               <option value="deliverable">Stop once a working artifact is produced</option>
             </select>
@@ -407,7 +408,7 @@ export function ChallengeDetailPage() {
             <label className="mb-1 block text-sm font-medium" htmlFor="reasoning_effort">
               Reasoning Level
             </label>
-            <select id="reasoning_effort" className="w-full rounded-md border border-slate-300 px-3 py-2" {...runForm.register("reasoning_effort")}>
+            <select id="reasoning_effort" className={inputClasses} {...runForm.register("reasoning_effort")}>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
@@ -429,13 +430,13 @@ export function ChallengeDetailPage() {
               type="number"
               min={1}
               max={24 * 60}
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className={inputClasses}
               {...runForm.register("max_minutes")}
             />
             {runForm.formState.errors.max_minutes ? (
               <p className="mt-1 text-xs text-danger">{runForm.formState.errors.max_minutes.message}</p>
             ) : (
-              <p className="mt-1 text-xs text-slate-600">Hard timeout for the sandbox container.</p>
+              <p className="mt-1 text-xs text-ink-muted">Hard timeout for the sandbox container.</p>
             )}
           </div>
 
@@ -447,14 +448,14 @@ export function ChallengeDetailPage() {
               id="max_commands"
               type="number"
               min={1}
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className={inputClasses}
               placeholder="Unlimited"
               {...runForm.register("max_commands")}
             />
             {runForm.formState.errors.max_commands ? (
               <p className="mt-1 text-xs text-danger">{runForm.formState.errors.max_commands.message}</p>
             ) : (
-              <p className="mt-1 text-xs text-slate-600">Leave blank for no command-count cap.</p>
+              <p className="mt-1 text-xs text-ink-muted">Leave blank for no command-count cap.</p>
             )}
           </div>
 
@@ -465,25 +466,25 @@ export function ChallengeDetailPage() {
           </Button>
         </form>
 
-        <section className="mt-6 border-t border-slate-200 pt-4">
-          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Runs for This Challenge</h4>
+        <section className="mt-6 border-t border-line pt-4">
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-subtle">Runs for This Challenge</h4>
           {challengeRunsQuery.isLoading ? <p className="text-sm">Loading runs...</p> : null}
           {challengeRunsQuery.error ? <p className="text-sm text-danger">Failed to load challenge runs.</p> : null}
 
           <div className="space-y-3">
             <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Active</p>
-              {activeRuns.length === 0 ? <p className="text-xs text-slate-600">No active runs.</p> : null}
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-subtle">Active</p>
+              {activeRuns.length === 0 ? <p className="text-xs text-ink-muted">No active runs.</p> : null}
               <ul className="space-y-2">
                 {activeRuns.map((run) => (
-                  <li key={run.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs">
+                  <li key={run.id} className="rounded-md bg-surface-muted px-3 py-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
                       <Link className="font-semibold text-accent hover:underline" to={`/runs/${run.id}`}>
                         {run.id.slice(0, 8)}
                       </Link>
                       <Badge status={run.status}>{run.status}</Badge>
                     </div>
-                    <p className="mt-1 text-slate-600">
+                    <p className="mt-1 text-ink-muted">
                       {run.backend} | started {formatDateTime(run.started_at)}
                     </p>
                   </li>
@@ -492,18 +493,18 @@ export function ChallengeDetailPage() {
             </div>
 
             <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Completed</p>
-              {finishedRuns.length === 0 ? <p className="text-xs text-slate-600">No completed runs yet.</p> : null}
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-subtle">Completed</p>
+              {finishedRuns.length === 0 ? <p className="text-xs text-ink-muted">No completed runs yet.</p> : null}
               <ul className="max-h-60 space-y-2 overflow-auto">
                 {finishedRuns.map((run) => (
-                  <li key={run.id} className="rounded-md bg-slate-50 px-3 py-2 text-xs">
+                  <li key={run.id} className="rounded-md bg-surface-muted px-3 py-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
                       <Link className="font-semibold text-accent hover:underline" to={`/runs/${run.id}`}>
                         {run.id.slice(0, 8)}
                       </Link>
                       <Badge status={run.status}>{run.status}</Badge>
                     </div>
-                    <p className="mt-1 text-slate-600">
+                    <p className="mt-1 text-ink-muted">
                       {run.backend} | finished {formatDateTime(run.finished_at)}
                     </p>
                   </li>

@@ -11,6 +11,7 @@ import {
 } from "@/api/endpoints";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { inputClasses } from "@/components/ui/forms";
 
 export function CodexAuthCard() {
   const queryClient = useQueryClient();
@@ -67,7 +68,7 @@ export function CodexAuthCard() {
   return (
     <Card>
       <h3 className="mb-3 text-lg font-semibold">Codex Auth Files</h3>
-      <p className="mb-3 text-sm text-slate-600">Upload tagged auth files. Active tag is used for sandbox Codex runs.</p>
+      <p className="mb-3 text-sm text-ink-muted">Upload tagged auth files. Active tag is used for sandbox Codex runs.</p>
 
       <form className="space-y-3" onSubmit={onUploadSubmit}>
         <div>
@@ -76,7 +77,7 @@ export function CodexAuthCard() {
           </label>
           <input
             id="codex_auth_tag"
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            className={inputClasses}
             value={tag}
             onChange={(event) => {
               setTag(event.target.value);
@@ -92,17 +93,17 @@ export function CodexAuthCard() {
             id="codex_auth_files"
             type="file"
             multiple
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            className={inputClasses}
             onChange={(event) => {
               const files = Array.from(event.target.files ?? []);
               setSelectedFiles(files);
             }}
           />
-          <p className="mt-1 text-xs text-slate-600">Allowlisted filenames only (for example: auth.json, credentials.json, token.json).</p>
+          <p className="mt-1 text-xs text-ink-muted">Allowlisted filenames only (for example: auth.json, credentials.json, token.json).</p>
         </div>
 
         {selectedFiles.length > 0 ? (
-          <ul className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          <ul className="rounded-md bg-surface-muted px-3 py-2 text-xs text-ink-muted">
             {selectedFiles.map((file) => (
               <li key={file.name}>
                 {file.name} ({file.size} bytes)
@@ -118,25 +119,25 @@ export function CodexAuthCard() {
         </Button>
       </form>
 
-      <div className="mt-5 border-t border-slate-200 pt-4">
-        <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Tags</h4>
+      <div className="mt-5 border-t border-line pt-4">
+        <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-subtle">Tags</h4>
         {statusQuery.isLoading ? <p>Loading auth status...</p> : null}
         {statusQuery.error ? <p className="text-danger">Failed to load auth status.</p> : null}
 
-        {statusQuery.data && statusQuery.data.tags.length === 0 ? <p className="text-sm text-slate-600">No auth files uploaded yet.</p> : null}
+        {statusQuery.data && statusQuery.data.tags.length === 0 ? <p className="text-sm text-ink-muted">No auth files uploaded yet.</p> : null}
 
         <div className="space-y-2">
           {statusQuery.data?.tags.map((tagInfo) => {
             const active = statusQuery.data?.active_tag === tagInfo.tag;
             return (
-              <div key={tagInfo.tag} className="rounded-md border border-slate-200 p-3">
+              <div key={tagInfo.tag} className="rounded-md border border-line bg-surface-muted p-3">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold">
                       {tagInfo.tag}
                       {active ? <span className="ml-2 text-xs text-success">(active)</span> : null}
                     </p>
-                    <p className="text-xs text-slate-600">{tagInfo.file_count} files</p>
+                    <p className="text-xs text-ink-muted">{tagInfo.file_count} files</p>
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -162,9 +163,9 @@ export function CodexAuthCard() {
                   </div>
                 </div>
 
-                <ul className="space-y-1 text-xs text-slate-700">
+                <ul className="space-y-1 text-xs text-ink-muted">
                   {tagInfo.files.map((fileInfo) => (
-                    <li key={fileInfo.id} className="flex items-center justify-between rounded bg-slate-50 px-2 py-1">
+                    <li key={fileInfo.id} className="flex items-center justify-between rounded bg-surface-strong px-2 py-1">
                       <span>
                         {fileInfo.file_name} ({fileInfo.size_bytes} bytes)
                       </span>

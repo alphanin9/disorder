@@ -10,6 +10,7 @@ import type { ChallengeArtifact, ChallengeCreateRequest, ChallengeManifest, CTF 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { inputClasses } from "@/components/ui/forms";
 import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 import { CTFdImportCard } from "@/features/integrations/CTFdImportCard";
 
@@ -218,13 +219,13 @@ export function ChallengesPage() {
     return (
       <Card>
         <h2 className="mb-1 text-lg font-bold">CTF Events</h2>
-        <p className="mb-5 text-sm text-slate-600">Select a CTF to open its challenges.</p>
+        <p className="mb-5 text-sm text-ink-muted">Select a CTF to open its challenges.</p>
 
         {ctfQuery.isLoading ? <p>Loading CTFs...</p> : null}
         {ctfQuery.error ? <p className="text-danger">Failed to load CTFs.</p> : null}
 
         {ctfQuery.data?.items.length === 0 ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No CTF events yet. Create one on the <Link to="/ctfs" className="font-semibold underline">CTFs page</Link>.
           </p>
         ) : null}
@@ -234,7 +235,7 @@ export function ChallengesPage() {
             <button
               key={ctf.id}
               type="button"
-              className="rounded-lg border border-slate-200 p-4 text-left transition hover:border-accent/50 hover:bg-slate-50"
+              className="rounded-lg border border-line bg-surface-muted p-4 text-left transition hover:border-accent/50 hover:bg-surface-strong"
               onClick={() => {
                 setSelectedCtfId(ctf.id);
               }}
@@ -243,8 +244,8 @@ export function ChallengesPage() {
                 <h3 className="text-base font-bold text-ink">{ctf.name}</h3>
                 <Badge>{ctf.platform ?? "manual"}</Badge>
               </div>
-              <p className="text-xs text-slate-600">slug: {ctf.slug}</p>
-              <p className="mt-2 text-xs text-slate-700">
+              <p className="text-xs text-ink-muted">slug: {ctf.slug}</p>
+              <p className="mt-2 text-xs text-ink-muted">
                 default flag regex: <code>{ctf.default_flag_regex ?? "(none)"}</code>
               </p>
               <p className="mt-3 text-sm font-semibold text-accent">Open challenges</p>
@@ -271,53 +272,53 @@ export function ChallengesPage() {
               Back to CTFs
             </Button>
             <h2 className="text-lg font-bold">{selectedCtf?.name ?? "Selected CTF"}</h2>
-            <p className="text-sm text-slate-600">Challenges for this CTF.</p>
+            <p className="text-sm text-ink-muted">Challenges for this CTF.</p>
           </div>
           {selectedCtf ? <Badge>{selectedCtf.platform ?? "manual"}</Badge> : null}
         </div>
 
-        <p className="mb-4 text-xs text-slate-600">
+        <p className="mb-4 text-xs text-ink-muted">
           Default flag regex: <code>{selectedCtf?.default_flag_regex ?? "(none)"}</code>
         </p>
 
         {challengeQuery.isLoading ? <p>Loading challenges...</p> : null}
         {challengeQuery.error ? <p className="text-danger">Failed to load challenges.</p> : null}
-        {runsQuery.isLoading ? <p className="text-xs text-slate-600">Loading run indicators...</p> : null}
+        {runsQuery.isLoading ? <p className="text-xs text-ink-muted">Loading run indicators...</p> : null}
         {runsQuery.error ? <p className="text-xs text-danger">Run indicators unavailable.</p> : null}
-        {challenges.length === 0 ? <p className="text-sm text-slate-600">No challenges yet for this CTF.</p> : null}
+        {challenges.length === 0 ? <p className="text-sm text-ink-muted">No challenges yet for this CTF.</p> : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {challenges.map((challenge) => {
             const runStats = runStatsByChallenge.get(challenge.id) ?? EMPTY_RUN_STATS;
             return (
-              <div key={challenge.id} className="rounded-lg border border-slate-200 p-3">
+              <div key={challenge.id} className="rounded-lg border border-line bg-surface-muted p-3">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <Link className="font-semibold text-accent hover:underline" to={`/challenges/${challenge.id}`}>
                     {challenge.name}
                   </Link>
                   <Badge>{challenge.points} pts</Badge>
                 </div>
-                <p className="text-xs text-slate-600">{challenge.category}</p>
-                <p className="mt-2 text-xs text-slate-700">
+                <p className="text-xs text-ink-muted">{challenge.category}</p>
+                <p className="mt-2 text-xs text-ink-muted">
                   flag regex: <code>{challenge.flag_regex ?? selectedCtf?.default_flag_regex ?? "(none)"}</code>
                 </p>
-                <p className="mt-2 text-xs text-slate-600">synced: {formatSyncedAt(challenge.synced_at)}</p>
+                <p className="mt-2 text-xs text-ink-muted">synced: {formatSyncedAt(challenge.synced_at)}</p>
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">{runStats.total} runs</span>
+                  <span className="rounded bg-surface-strong px-2 py-1 text-[11px] font-semibold text-ink-muted">{runStats.total} runs</span>
                   {runStats.active > 0 ? (
-                    <span className="rounded bg-blue-100 px-2 py-1 text-[11px] font-semibold text-blue-800">{runStats.active} active</span>
+                    <span className="rounded bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent">{runStats.active} active</span>
                   ) : null}
                   {runStats.deliverablesProduced > 0 ? (
-                    <span className="rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800">
+                    <span className="rounded bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-warning">
                       deliverables_produced {runStats.deliverablesProduced}
                     </span>
                   ) : null}
                   {runStats.flagFound > 0 ? (
-                    <span className="rounded bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-800">flag_found {runStats.flagFound}</span>
+                    <span className="rounded bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-success">flag_found {runStats.flagFound}</span>
                   ) : null}
                   {runStats.blockedOrTimeout > 0 ? (
-                    <span className="rounded bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-800">
+                    <span className="rounded bg-rose-500/15 px-2 py-1 text-[11px] font-semibold text-danger">
                       blocked/timeout {runStats.blockedOrTimeout}
                     </span>
                   ) : null}
@@ -351,7 +352,7 @@ export function ChallengesPage() {
       <div className="space-y-4">
         <Card>
           <h3 className="mb-1 text-lg font-semibold">Add Challenge</h3>
-          <p className="mb-3 text-sm text-slate-600">
+          <p className="mb-3 text-sm text-ink-muted">
             New challenge for <span className="font-semibold">{selectedCtf?.name ?? "selected CTF"}</span>.
           </p>
           <form
@@ -364,7 +365,7 @@ export function ChallengesPage() {
               <label className="mb-1 block text-sm font-medium" htmlFor="name">
                 Name
               </label>
-              <input id="name" className="w-full rounded-md border border-slate-300 px-3 py-2" {...form.register("name")} />
+              <input id="name" className={inputClasses} {...form.register("name")} />
               {form.formState.errors.name ? <p className="mt-1 text-xs text-danger">{form.formState.errors.name.message}</p> : null}
             </div>
 
@@ -372,7 +373,7 @@ export function ChallengesPage() {
               <label className="mb-1 block text-sm font-medium" htmlFor="category">
                 Category
               </label>
-              <input id="category" className="w-full rounded-md border border-slate-300 px-3 py-2" {...form.register("category")} />
+              <input id="category" className={inputClasses} {...form.register("category")} />
               {form.formState.errors.category ? <p className="mt-1 text-xs text-danger">{form.formState.errors.category.message}</p> : null}
             </div>
 
@@ -380,7 +381,7 @@ export function ChallengesPage() {
               <label className="mb-1 block text-sm font-medium" htmlFor="points">
                 Points
               </label>
-              <input id="points" type="number" min={0} className="w-full rounded-md border border-slate-300 px-3 py-2" {...form.register("points")} />
+              <input id="points" type="number" min={0} className={inputClasses} {...form.register("points")} />
               {form.formState.errors.points ? <p className="mt-1 text-xs text-danger">{form.formState.errors.points.message}</p> : null}
             </div>
 
@@ -390,7 +391,7 @@ export function ChallengesPage() {
               </label>
               <textarea
                 id="description_md"
-                className="min-h-32 w-full rounded-md border border-slate-300 px-3 py-2"
+                className={`${inputClasses} min-h-32`}
                 {...form.register("description_md")}
               />
               {form.formState.errors.description_md ? <p className="mt-1 text-xs text-danger">{form.formState.errors.description_md.message}</p> : null}
@@ -400,22 +401,22 @@ export function ChallengesPage() {
               <label className="mb-1 block text-sm font-medium" htmlFor="flag_regex">
                 Challenge Flag Regex Override
               </label>
-              <input id="flag_regex" className="w-full rounded-md border border-slate-300 px-3 py-2" {...form.register("flag_regex")} />
-              <p className="mt-1 text-xs text-slate-600">Leave blank to inherit the CTF default regex.</p>
+              <input id="flag_regex" className={inputClasses} {...form.register("flag_regex")} />
+              <p className="mt-1 text-xs text-ink-muted">Leave blank to inherit the CTF default regex.</p>
             </div>
 
             <div>
               <label className="mb-2 block text-sm font-medium">Artifacts</label>
               <ArtifactDropzone disabled={uploadArtifactMutation.isPending} onFilesSelected={onArtifactFilesSelected} />
-              {uploadArtifactMutation.isPending ? <p className="mt-1 text-xs text-slate-600">Uploading artifact...</p> : null}
+              {uploadArtifactMutation.isPending ? <p className="mt-1 text-xs text-ink-muted">Uploading artifact...</p> : null}
               {uploadArtifactMutation.isError ? <p className="mt-1 text-xs text-danger">Failed to upload one or more artifacts.</p> : null}
 
               {artifacts.length > 0 ? (
                 <ul className="mt-3 space-y-2 text-sm">
                   {artifacts.map((artifact) => (
-                    <li key={artifact.object_key} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2">
+                    <li key={artifact.object_key} className="flex items-center justify-between rounded-md bg-surface-muted px-3 py-2">
                       <span>
-                        {artifact.name} <span className="text-xs text-slate-500">({artifact.size_bytes} bytes)</span>
+                        {artifact.name} <span className="text-xs text-ink-subtle">({artifact.size_bytes} bytes)</span>
                       </span>
                       <button
                         type="button"
@@ -430,7 +431,7 @@ export function ChallengesPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-2 text-xs text-slate-600">No artifacts attached.</p>
+                <p className="mt-2 text-xs text-ink-muted">No artifacts attached.</p>
               )}
             </div>
 

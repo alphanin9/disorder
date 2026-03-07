@@ -8,6 +8,7 @@ import type { RunContinueRequest, RunContinuationType } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { inputCompactClasses } from "@/components/ui/forms";
 import { formatDateTime, isRunFinal } from "@/features/runs/utils";
 
 const MAX_LOG_BUFFER_BYTES = 8 * 1024 * 1024;
@@ -339,16 +340,16 @@ export function RunPage() {
 
         <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           {details.map(([label, value]) => (
-            <div key={label} className="rounded-md bg-slate-50 px-3 py-2">
-              <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
-              <dd className="font-medium text-slate-900">{value}</dd>
+            <div key={label} className="rounded-md bg-surface-muted px-3 py-2">
+              <dt className="text-xs uppercase tracking-wide text-ink-subtle">{label}</dt>
+              <dd className="font-medium text-ink">{value}</dd>
             </div>
           ))}
         </dl>
 
         {parentRunId || childRuns.length > 0 ? (
-          <div className="mt-4 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Lineage</p>
+          <div className="mt-4 space-y-2 rounded-md border border-line bg-surface-muted p-3 text-sm">
+            <p className="text-xs uppercase tracking-wide text-ink-subtle">Lineage</p>
             {parentRunId ? (
               <p>
                 Parent run:{" "}
@@ -373,12 +374,12 @@ export function RunPage() {
         ) : null}
 
         {showContinuationForm ? (
-          <div className="mt-4 space-y-3 rounded-md border border-slate-200 p-3">
+          <div className="mt-4 space-y-3 rounded-md border border-line bg-surface-muted p-3">
             <h3 className="text-sm font-semibold">Continue this run</h3>
-            <label className="block space-y-1 text-xs text-slate-700">
+            <label className="block space-y-1 text-xs text-ink-muted">
               <span>Message</span>
               <textarea
-                className="w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+                className={`${inputCompactClasses} min-h-24`}
                 rows={4}
                 value={continuationMessage}
                 onChange={(event) => {
@@ -388,10 +389,10 @@ export function RunPage() {
               />
             </label>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block space-y-1 text-xs text-slate-700">
+              <label className="block space-y-1 text-xs text-ink-muted">
                 <span>Type</span>
                 <select
-                  className="w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+                  className={inputCompactClasses}
                   value={continuationType}
                   onChange={(event) => {
                     setContinuationType(event.target.value as RunContinuationType);
@@ -404,12 +405,12 @@ export function RunPage() {
                   ))}
                 </select>
               </label>
-              <label className="block space-y-1 text-xs text-slate-700">
+              <label className="block space-y-1 text-xs text-ink-muted">
                 <span>Time limit override (seconds)</span>
                 <input
                   type="number"
                   min={60}
-                  className="w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+                  className={inputCompactClasses}
                   value={timeLimitSeconds}
                   onChange={(event) => {
                     setTimeLimitSeconds(event.target.value);
@@ -418,10 +419,10 @@ export function RunPage() {
                 />
               </label>
             </div>
-            <label className="block space-y-1 text-xs text-slate-700">
+            <label className="block space-y-1 text-xs text-ink-muted">
               <span>Stop criteria override (JSON object, optional)</span>
               <textarea
-                className="w-full rounded-md border border-slate-300 px-2 py-2 font-mono text-xs"
+                className={`${inputCompactClasses} font-mono text-xs`}
                 rows={4}
                 value={stopCriteriaOverride}
                 onChange={(event) => {
@@ -430,7 +431,7 @@ export function RunPage() {
                 placeholder='{"secondary":{"config":{"required_files":["README.md","solve.py"]}}}'
               />
             </label>
-            <label className="flex items-center gap-2 text-xs text-slate-700">
+            <label className="flex items-center gap-2 text-xs text-ink-muted">
               <input
                 type="checkbox"
                 checked={reuseParentArtifacts}
@@ -533,17 +534,19 @@ export function RunPage() {
             </Button>
           </div>
         </div>
-        <pre className="max-h-96 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-emerald-300">{logsToRender || "(no logs yet)"}</pre>
+        <pre className="max-h-96 overflow-auto rounded-md border border-line bg-slate-950 p-3 text-xs text-emerald-300 shadow-inner">
+          {logsToRender || "(no logs yet)"}
+        </pre>
       </Card>
 
       <Card>
         <h3 className="mb-2 text-lg font-semibold">Final Result</h3>
-        {!terminal ? <p className="text-sm text-slate-600">Result will appear when run reaches a terminal state.</p> : null}
+        {!terminal ? <p className="text-sm text-ink-muted">Result will appear when run reaches a terminal state.</p> : null}
         {resultQuery.isLoading ? <p>Loading result...</p> : null}
         {resultQuery.error ? <p className="text-danger">Failed to load result payload.</p> : null}
         {resultQuery.data ? (
           <div className="space-y-3 text-sm">
-            <div className="rounded-md bg-slate-50 px-3 py-2">
+            <div className="rounded-md bg-surface-muted px-3 py-2">
               <p>
                 <span className="font-semibold">Status:</span> {resultQuery.data.status}
               </p>
@@ -551,7 +554,7 @@ export function RunPage() {
                 <span className="font-semibold">Stop criterion:</span> {resultQuery.data.stop_criterion_met}
               </p>
             </div>
-            <pre className="max-h-[28rem] overflow-auto rounded-md bg-slate-100 p-3 text-xs text-slate-800">
+            <pre className="max-h-[28rem] overflow-auto rounded-md bg-surface-strong p-3 text-xs text-ink">
               {JSON.stringify(resultQuery.data, null, 2)}
             </pre>
           </div>

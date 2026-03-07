@@ -3,11 +3,14 @@ import { RouterProvider } from "react-router-dom";
 
 import { queryClient } from "@/app/queryClient";
 import { router } from "@/app/router";
+import { ThemeProvider } from "@/app/theme";
 
 export function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

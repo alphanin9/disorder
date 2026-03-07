@@ -9,6 +9,7 @@ import { clearCtfCtfdApiToken, clearCtfCtfdSessionCookie, getCtfCtfdConfig, sync
 import type { CTFdPerCtfConfigResponse, CTFdSyncRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { inputClasses } from "@/components/ui/forms";
 
 const ctfdSyncSchema = z
   .object({
@@ -120,7 +121,7 @@ export function CTFdImportCard() {
   return (
     <Card>
       <h3 className="mb-3 text-lg font-semibold">Import from CTFd</h3>
-      <p className="mb-3 text-sm text-slate-600">
+      <p className="mb-3 text-sm text-ink-muted">
         Sync challenges from a CTFd instance. Session cookie mode is default and can be saved (encrypted) for future backend auto-submit.
       </p>
 
@@ -129,7 +130,7 @@ export function CTFdImportCard() {
           <label className="mb-1 block text-sm font-medium" htmlFor="ctfd_auth_mode">
             Auth Mode
           </label>
-          <select id="ctfd_auth_mode" className="w-full rounded-md border border-slate-300 px-3 py-2" {...form.register("auth_mode")}>
+          <select id="ctfd_auth_mode" className={inputClasses} {...form.register("auth_mode")}>
             <option value="session_cookie">Session Cookie (one-time, default)</option>
             <option value="api_token">API Token</option>
           </select>
@@ -144,7 +145,7 @@ export function CTFdImportCard() {
             type="url"
             autoComplete="url"
             placeholder="https://ctfd.example.com"
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            className={inputClasses}
             {...form.register("base_url")}
           />
           {form.formState.errors.base_url ? <p className="mt-1 text-xs text-danger">{form.formState.errors.base_url.message}</p> : null}
@@ -160,11 +161,11 @@ export function CTFdImportCard() {
               type="password"
               autoComplete="off"
               placeholder="session=..."
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className={inputClasses}
               {...form.register("session_cookie")}
             />
             {form.formState.errors.session_cookie ? <p className="mt-1 text-xs text-danger">{form.formState.errors.session_cookie.message}</p> : null}
-            <p className="mt-1 text-xs text-slate-600">Stored encrypted per CTF so backend auto-submit can use it later. Session cookies may expire and need rotation.</p>
+            <p className="mt-1 text-xs text-ink-muted">Stored encrypted per CTF so backend auto-submit can use it later. Session cookies may expire and need rotation.</p>
           </div>
         ) : (
           <div>
@@ -175,7 +176,7 @@ export function CTFdImportCard() {
               id="ctfd_api_token"
               type="password"
               autoComplete="off"
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className={inputClasses}
               {...form.register("api_token")}
             />
             {form.formState.errors.api_token ? <p className="mt-1 text-xs text-danger">{form.formState.errors.api_token.message}</p> : null}
@@ -196,7 +197,7 @@ export function CTFdImportCard() {
         </p>
       ) : null}
       {syncMutation.data ? (
-        <div className="mt-2 rounded-md border border-slate-200 p-2 text-xs text-slate-700">
+        <div className="mt-2 rounded-md border border-line bg-surface-muted p-2 text-xs text-ink-muted">
           <p>
             Saved auth modes for <code>{syncMutation.data.ctf_slug}</code>:{" "}
             {syncMutation.data.stored_auth_modes.length > 0 ? syncMutation.data.stored_auth_modes.join(", ") : "(none)"}
@@ -218,7 +219,7 @@ export function CTFdImportCard() {
 
       {savedConfigError ? <p className="mt-2 text-xs text-danger">{savedConfigError}</p> : null}
       {lastSyncedCtf && savedConfig ? (
-        <div className="mt-3 rounded-md border border-slate-200 p-3 text-xs text-slate-700">
+        <div className="mt-3 rounded-md border border-line bg-surface-muted p-3 text-xs text-ink-muted">
           <p className="font-medium">Saved CTFd Auth ({lastSyncedCtf.slug})</p>
           <p className="mt-1">
             base URL: <code>{savedConfig.base_url || "(none)"}</code>

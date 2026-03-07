@@ -8,6 +8,7 @@ import { createCtf, deleteCtf, getCtfs, updateCtf } from "@/api/endpoints";
 import type { CTFCreateRequest, CTFUpdateRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { inputClasses } from "@/components/ui/forms";
 import { CTFdImportCard } from "@/features/integrations/CTFdImportCard";
 import { CodexAuthCard } from "@/features/integrations/CodexAuthCard";
 
@@ -136,20 +137,20 @@ export function CTFsPage() {
     <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
       <Card>
         <h2 className="mb-1 text-lg font-bold">CTF Events</h2>
-        <p className="mb-5 text-sm text-slate-600">Configure per-CTF defaults like flag format regex.</p>
+        <p className="mb-5 text-sm text-ink-muted">Configure per-CTF defaults like flag format regex.</p>
 
         {ctfQuery.isLoading ? <p>Loading CTFs...</p> : null}
         {ctfQuery.error ? <p className="text-danger">Failed to load CTFs.</p> : null}
 
         {ctfQuery.data ? (
           <div className="space-y-3">
-            {ctfQuery.data.items.length === 0 ? <p className="text-sm text-slate-600">No CTF events yet.</p> : null}
+            {ctfQuery.data.items.length === 0 ? <p className="text-sm text-ink-muted">No CTF events yet.</p> : null}
             {ctfQuery.data.items.map((ctf) => (
-              <div key={ctf.id} className="rounded-lg border border-slate-200 p-3">
+              <div key={ctf.id} className="rounded-lg border border-line bg-surface-muted p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold">{ctf.name}</p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-ink-muted">
                       slug: {ctf.slug} | platform: {ctf.platform ?? "-"}
                     </p>
                   </div>
@@ -179,7 +180,7 @@ export function CTFsPage() {
                     </Button>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-slate-700">
+                <p className="mt-2 text-xs text-ink-muted">
                   default flag regex: <code>{ctf.default_flag_regex ?? "(none)"}</code>
                 </p>
               </div>
@@ -200,24 +201,24 @@ export function CTFsPage() {
           >
             <div>
               <label className="mb-1 block text-sm font-medium">Name</label>
-              <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...createForm.register("name")} />
+              <input className={inputClasses} {...createForm.register("name")} />
               {createForm.formState.errors.name ? <p className="mt-1 text-xs text-danger">{createForm.formState.errors.name.message}</p> : null}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Slug</label>
-              <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...createForm.register("slug")} />
+              <input className={inputClasses} {...createForm.register("slug")} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Platform</label>
-              <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...createForm.register("platform")} />
+              <input className={inputClasses} {...createForm.register("platform")} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Default Flag Regex</label>
-              <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...createForm.register("default_flag_regex")} />
+              <input className={inputClasses} {...createForm.register("default_flag_regex")} />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Notes</label>
-              <textarea className="min-h-20 w-full rounded-md border border-slate-300 px-3 py-2" {...createForm.register("notes")} />
+              <textarea className={`${inputClasses} min-h-20`} {...createForm.register("notes")} />
             </div>
             {createMutation.isError ? <p className="text-sm text-danger">Failed to create CTF.</p> : null}
             <Button type="submit" className="w-full" disabled={createMutation.isPending}>
@@ -237,24 +238,24 @@ export function CTFsPage() {
             >
               <div>
                 <label className="mb-1 block text-sm font-medium">Name</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("name")} />
+                <input className={inputClasses} {...editForm.register("name")} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Slug</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("slug")} />
+                <input className={inputClasses} {...editForm.register("slug")} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Platform</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("platform")} />
+                <input className={inputClasses} {...editForm.register("platform")} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Default Flag Regex</label>
-                <input className="w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("default_flag_regex")} />
-                <p className="mt-1 text-xs text-slate-600">Leave blank to disable CTF-level default regex.</p>
+                <input className={inputClasses} {...editForm.register("default_flag_regex")} />
+                <p className="mt-1 text-xs text-ink-muted">Leave blank to disable CTF-level default regex.</p>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">Notes</label>
-                <textarea className="min-h-20 w-full rounded-md border border-slate-300 px-3 py-2" {...editForm.register("notes")} />
+                <textarea className={`${inputClasses} min-h-20`} {...editForm.register("notes")} />
               </div>
               {updateMutation.isError ? <p className="text-sm text-danger">Failed to update CTF.</p> : null}
               <div className="flex gap-2">

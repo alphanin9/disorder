@@ -3,6 +3,8 @@ import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 
+import { ThemeProvider } from "@/app/theme";
+
 export function renderWithProviders(ui: ReactElement, initialEntries: string[] = ["/"]) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -13,8 +15,10 @@ export function renderWithProviders(ui: ReactElement, initialEntries: string[] =
   });
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    </ThemeProvider>,
   );
 }

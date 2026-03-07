@@ -20,7 +20,7 @@ export function ArtifactDropzone({ disabled = false, onFilesSelected }: Artifact
     <div className="space-y-2">
       <div
         className={`rounded-lg border-2 border-dashed p-4 text-center text-sm ${
-          isDragOver ? "border-accent bg-accentSoft/40" : "border-slate-300 bg-slate-50"
+          isDragOver ? "border-accent bg-accent-soft/40" : "border-line bg-surface-muted"
         } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
         onClick={() => {
           if (!disabled) {
@@ -46,8 +46,8 @@ export function ArtifactDropzone({ disabled = false, onFilesSelected }: Artifact
           handleFiles(event.dataTransfer.files);
         }}
       >
-        <p className="font-medium text-slate-700">Drag and drop challenge artifacts here</p>
-        <p className="mt-1 text-xs text-slate-500">or click to browse files</p>
+        <p className="font-medium text-ink">Drag and drop challenge artifacts here</p>
+        <p className="mt-1 text-xs text-ink-subtle">or click to browse files</p>
       </div>
       <input
         ref={inputRef}

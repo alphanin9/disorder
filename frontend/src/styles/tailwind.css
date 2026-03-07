@@ -2,14 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  color: #141414;
-  background: radial-gradient(circle at top right, #dbe9ff, #f6f7f9 35%, #eef1f7 70%);
-  font-family: "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
+@layer base {
+  :root {
+    color-scheme: light;
+    --color-canvas: 244 247 252;
+    --color-surface: 255 255 255;
+    --color-surface-muted: 237 242 249;
+    --color-surface-strong: 249 251 255;
+    --color-line: 208 218 232;
+    --color-line-strong: 182 194 212;
+    --color-ink: 18 24 38;
+    --color-ink-muted: 80 92 115;
+    --color-ink-subtle: 107 120 144;
+    --color-accent: 0 82 204;
+    --color-accent-soft: 214 230 255;
+    --color-danger: 180 35 24;
+    --color-success: 6 118 71;
+    --color-warning: 181 71 8;
+    --shadow-panel: 0 18px 48px rgba(15, 23, 42, 0.08);
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --color-canvas: 10 17 30;
+    --color-surface: 18 27 43;
+    --color-surface-muted: 24 36 56;
+    --color-surface-strong: 15 24 38;
+    --color-line: 46 63 89;
+    --color-line-strong: 74 95 126;
+    --color-ink: 235 241 255;
+    --color-ink-muted: 168 182 209;
+    --color-ink-subtle: 133 149 181;
+    --color-accent: 103 170 255;
+    --color-accent-soft: 35 63 110;
+    --color-danger: 255 125 110;
+    --color-success: 85 214 153;
+    --color-warning: 255 191 102;
+    --shadow-panel: 0 20px 60px rgba(2, 6, 23, 0.45);
+  }
+
+  html {
+    background-color: rgb(var(--color-canvas));
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: rgb(var(--color-ink));
+    background:
+      radial-gradient(circle at top right, rgb(var(--color-accent) / 0.18), transparent 24%),
+      radial-gradient(circle at bottom left, rgb(var(--color-accent-soft) / 0.5), transparent 22%),
+      linear-gradient(180deg, rgb(var(--color-canvas)), rgb(var(--color-surface-muted)));
+    font-family: "Segoe UI", "Inter", "Helvetica Neue", sans-serif;
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+
+  * {
+    border-color: rgb(var(--color-line));
+  }
+
+  ::selection {
+    background-color: rgb(var(--color-accent) / 0.2);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: rgb(var(--color-accent));
+  }
+
+  #root {
+    min-height: 100vh;
+  }
 }
 
-#root {
-  min-height: 100vh;
+@layer components {
+  .ui-input {
+    @apply w-full rounded-md border border-line bg-surface-strong px-3 py-2 text-ink shadow-sm transition placeholder:text-ink-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .ui-panel {
+    @apply rounded-md border border-line bg-surface-muted;
+  }
 }
