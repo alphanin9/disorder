@@ -30,8 +30,12 @@ const server = setupServer(
       ],
     }),
   ),
-  http.get("http://localhost/api/runs", () =>
-    HttpResponse.json({
+  http.get("http://localhost/api/runs", ({ request }) => {
+    const challengeId = new URL(request.url).searchParams.get("challenge_id");
+    if (challengeId !== "11e0d301-3635-497c-990a-2a11721022a0") {
+      return HttpResponse.json({ items: [] });
+    }
+    return HttpResponse.json({
       items: [
         {
           id: "7d2d5201-08e5-4450-bbe3-0d27d2916651",
@@ -90,8 +94,8 @@ const server = setupServer(
           finished_at: null,
         },
       ],
-    }),
-  ),
+    });
+  }),
   http.get("http://localhost/api/ctfs", () =>
     HttpResponse.json({
       items: [
@@ -124,7 +128,7 @@ describe("ChallengesPage", () => {
     expect(await screen.findByText("Warmup")).toBeInTheDocument();
     expect(screen.getByText("misc")).toBeInTheDocument();
     expect(screen.getByText("50 pts")).toBeInTheDocument();
-    expect(screen.getByText("4 runs")).toBeInTheDocument();
+    expect(await screen.findByText("4 runs")).toBeInTheDocument();
     expect(screen.getByText("1 active")).toBeInTheDocument();
     expect(screen.getByText("deliverables_produced 1")).toBeInTheDocument();
     expect(screen.getByText("flag_found 1")).toBeInTheDocument();

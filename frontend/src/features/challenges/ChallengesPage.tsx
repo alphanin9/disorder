@@ -68,13 +68,6 @@ export function ChallengesPage() {
     enabled: Boolean(selectedCtfId),
   });
 
-  const runsQuery = useQuery({
-    queryKey: ["runs", "challenge-indicators", selectedCtfId],
-    queryFn: () => getRuns({ limit: 500 }),
-    enabled: Boolean(selectedCtfId),
-    refetchInterval: 5000,
-  });
-
   const form = useForm<CreateChallengeValues>({
     resolver: zodResolver(createChallengeSchema),
     defaultValues: {
@@ -173,11 +166,28 @@ export function ChallengesPage() {
     return [...(challengeQuery.data?.items ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   }, [challengeQuery.data]);
 
+  const challengeIds = useMemo(() => challenges.map((challenge) => challenge.id), [challenges]);
+
+  const runsQuery = useQuery({
+    queryKey: ["runs", "challenge-indicators", selectedCtfId, challengeIds],
+    queryFn: async () => {
+      const runsByChallenge = await Promise.all(
+        challengeIds.map(async (challengeId) => {
+          const response = await getRuns({ challengeId, limit: 500 });
+          return response.items;
+        }),
+      );
+      return runsByChallenge.flat();
+    },
+    enabled: Boolean(selectedCtfId) && challengeIds.length > 0,
+    refetchInterval: 5000,
+  });
+
   const runStatsByChallenge = useMemo(() => {
     const challengeIdSet = new Set(challenges.map((challenge) => challenge.id));
     const statsMap = new Map<string, ChallengeRunStats>();
 
-    for (const run of runsQuery.data?.items ?? []) {
+    for (const run of runsQuery.data ?? []) {
       if (!challengeIdSet.has(run.challenge_id)) {
         continue;
       }
