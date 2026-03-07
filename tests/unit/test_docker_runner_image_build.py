@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from docker.errors import ImageNotFound
@@ -40,14 +41,12 @@ def test_ensure_sandbox_image_builds_selected_target(monkeypatch, tmp_path) -> N
 
     runner._ensure_sandbox_image()
 
-    assert images.build_calls == [
-        {
-            "path": "images\\ctf-agent-sandbox",
-            "tag": "ctf-agent-sandbox-ci:latest",
-            "rm": True,
-            "target": "ci",
-        }
-    ]
+    assert len(images.build_calls) == 1
+    build_call = images.build_calls[0]
+    assert Path(str(build_call["path"])).as_posix() == "images/ctf-agent-sandbox"
+    assert build_call["tag"] == "ctf-agent-sandbox-ci:latest"
+    assert build_call["rm"] is True
+    assert build_call["target"] == "ci"
 
 
 def test_ensure_sandbox_image_omits_target_when_unset(monkeypatch, tmp_path) -> None:
@@ -62,10 +61,9 @@ def test_ensure_sandbox_image_omits_target_when_unset(monkeypatch, tmp_path) -> 
 
     runner._ensure_sandbox_image()
 
-    assert images.build_calls == [
-        {
-            "path": "images\\ctf-agent-sandbox",
-            "tag": "ctf-agent-sandbox:latest",
-            "rm": True,
-        }
-    ]
+    assert len(images.build_calls) == 1
+    build_call = images.build_calls[0]
+    assert Path(str(build_call["path"])).as_posix() == "images/ctf-agent-sandbox"
+    assert build_call["tag"] == "ctf-agent-sandbox:latest"
+    assert build_call["rm"] is True
+    assert "target" not in build_call
