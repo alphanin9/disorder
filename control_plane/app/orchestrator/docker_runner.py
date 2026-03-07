@@ -315,13 +315,21 @@ class DockerRunner:
         except ImageNotFound:
             pass
 
+        target = (getattr(self.settings, "sandbox_build_target", None) or "").strip()
+        build_kwargs: dict[str, Any] = {
+            "tag": self.settings.sandbox_image,
+            "rm": True,
+        }
+        if target:
+            build_kwargs["target"] = target
+
         build_context_candidates = [
             Path("/app/images/ctf-agent-sandbox"),
             Path("images/ctf-agent-sandbox"),
         ]
         for candidate in build_context_candidates:
             if candidate.exists():
-                self.client.images.build(path=str(candidate), tag=self.settings.sandbox_image, rm=True)
+                self.client.images.build(path=str(candidate), **build_kwargs)
                 return
 
         raise FileNotFoundError("Sandbox image not found and build context is unavailable")

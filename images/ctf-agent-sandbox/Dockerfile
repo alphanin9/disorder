@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bookworm AS sandbox-base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -7,12 +7,40 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    aeskeyfind \
     bash \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 -s /bin/bash ctf && \
+    mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
+    chown -R ctf:ctf /workspace /home/ctf
+
+WORKDIR /workspace
+
+COPY agent_runner.py /usr/local/bin/agent_runner.py
+COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
+COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
+COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
+COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
+
+RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/flag_submit_mcp.py
+
+
+FROM sandbox-base AS ci
+
+USER ctf
+
+ENTRYPOINT ["python", "/usr/local/bin/agent_runner.py"]
+
+
+FROM sandbox-base AS full
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    aeskeyfind \
     binutils \
     binwalk \
     build-essential \
-    ca-certificates \
     cpio \
     curl \
     file \
@@ -24,8 +52,9 @@ RUN apt-get update && \
     netcat-openbsd \
     nodejs \
     npm \
-    patchelf \
     p7zip-full \
+    pahole \
+    patchelf \
     qemu-system-x86 \
     ripgrep \
     sagemath \
@@ -35,10 +64,6 @@ RUN apt-get update && \
     vim-common \
     wget \
     zip
-
-# 2nd stage packages (to avoid long container rebuilds...)
-RUN apt-get install -y --no-install-recommends \
-    pahole
 
 # Setup Dotnet SDK for ilspycmd
 RUN wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && \
@@ -74,16 +99,17 @@ RUN wget --https-only --secure-protocol=TLSv1_2 -qO- 'https://install.pwndbg.re'
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    wine \
-    wine32 \
-    wine64 \
+    fonts-wine \
     libwine \
     libwine:i386 \
-    fonts-wine
+    wine \
+    wine32 \
+    wine64
 
 # Setup Ghidra installation in sandbox
 # Install GPG
 RUN apt-get install -y --no-install-recommends gpg
+
 # Setup JDK
 RUN wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
     | gpg --dearmor \
@@ -106,20 +132,6 @@ ENV GHIDRA_INSTALL_DIR=/opt/ghidra
 
 # Cleanup apt lists
 RUN rm -rf /var/lib/apt/lists/*
-
-RUN useradd -m -u 1000 -s /bin/bash ctf && \
-    mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
-    chown -R ctf:ctf /workspace /home/ctf
-
-WORKDIR /workspace
-
-COPY agent_runner.py /usr/local/bin/agent_runner.py
-COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
-COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
-COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
-COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
-
-RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/flag_submit_mcp.py
 
 USER ctf
 
