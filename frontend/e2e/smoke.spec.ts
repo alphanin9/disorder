@@ -3,7 +3,11 @@ import { expect, test } from "@playwright/test";
 test("starts a mock run from challenge detail", async ({ page }) => {
   await page.goto("/");
 
-  const firstChallengeLink = page.locator("table tbody tr a").first();
+  const firstCtfButton = page.getByRole("button", { name: /open challenges/i }).first();
+  await expect(firstCtfButton).toBeVisible({ timeout: 20_000 });
+  await firstCtfButton.click();
+
+  const firstChallengeLink = page.locator('a[href^="/challenges/"]').first();
   await expect(firstChallengeLink).toBeVisible({ timeout: 20_000 });
   await firstChallengeLink.click();
 
