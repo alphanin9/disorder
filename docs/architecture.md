@@ -6,8 +6,9 @@
 - `postgres`: source of truth for challenge manifests, run specs, run result metadata.
 - `minio`: object storage for challenge artifacts, run results, logs, deliverables.
 - `auth store` (in `integration_configs`): encrypted, tagged Codex auth files for browser upload + sandbox staging.
-- `sandbox` container (`ctf-agent-sandbox:latest`): executes one RunSpec with backend `mock|codex|claude_code`.
+- `sandbox` container (`ctf-agent-sandbox:latest` by default, configurable build target): executes one RunSpec with backend `mock|codex|claude_code`.
   - Includes baseline CTF tooling (`pwntools`, `gdb`, `binutils`, `strace`, `socat`, `z3-solver`, `SageMath`, `SymPy`, `NumPy`, etc.) and Codex CLI.
+  - CI smoke jobs may instead use the minimal `ci` target, which keeps the sandbox contract and mock backend path without the full tooling bundle.
 - `cli`: Typer client for sync/list/run/log/result workflows.
 
 ## Data flow

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     runs_dir: Path = Field(default=Path("./runs").resolve())
     docker_bind_runs_dir: Path = Field(default=Path("./runs").resolve())
     sandbox_image: str = Field(default="ctf-agent-sandbox:latest")
+    sandbox_build_target: str | None = Field(default="full")
     docker_socket: str = Field(default="unix://var/run/docker.sock")
 
     default_cpu_limit: float = Field(default=1.0)
