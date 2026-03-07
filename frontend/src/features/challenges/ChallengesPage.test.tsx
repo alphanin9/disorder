@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 
 import { ChallengesPage } from "@/features/challenges/ChallengesPage";
 import { renderWithProviders } from "@/test/render";
@@ -30,6 +30,68 @@ const server = setupServer(
       ],
     }),
   ),
+  http.get("http://localhost/api/runs", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: "7d2d5201-08e5-4450-bbe3-0d27d2916651",
+          challenge_id: "11e0d301-3635-497c-990a-2a11721022a0",
+          backend: "codex",
+          budgets: { max_minutes: 30, max_commands: null },
+          stop_criteria: {},
+          allowed_endpoints: [],
+          paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
+          local_deploy: { enabled: false, network: null, endpoints: [] },
+          status: "flag_found",
+          error_message: null,
+          started_at: "2026-02-14T22:00:00Z",
+          finished_at: "2026-02-14T22:01:00Z",
+        },
+        {
+          id: "7d2d5201-08e5-4450-bbe3-0d27d2916652",
+          challenge_id: "11e0d301-3635-497c-990a-2a11721022a0",
+          backend: "codex",
+          budgets: { max_minutes: 30, max_commands: null },
+          stop_criteria: {},
+          allowed_endpoints: [],
+          paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
+          local_deploy: { enabled: false, network: null, endpoints: [] },
+          status: "deliverable_produced",
+          error_message: null,
+          started_at: "2026-02-14T22:02:00Z",
+          finished_at: "2026-02-14T22:03:00Z",
+        },
+        {
+          id: "7d2d5201-08e5-4450-bbe3-0d27d2916653",
+          challenge_id: "11e0d301-3635-497c-990a-2a11721022a0",
+          backend: "codex",
+          budgets: { max_minutes: 30, max_commands: null },
+          stop_criteria: {},
+          allowed_endpoints: [],
+          paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
+          local_deploy: { enabled: false, network: null, endpoints: [] },
+          status: "blocked",
+          error_message: "blocked",
+          started_at: "2026-02-14T22:04:00Z",
+          finished_at: "2026-02-14T22:05:00Z",
+        },
+        {
+          id: "7d2d5201-08e5-4450-bbe3-0d27d2916654",
+          challenge_id: "11e0d301-3635-497c-990a-2a11721022a0",
+          backend: "codex",
+          budgets: { max_minutes: 30, max_commands: null },
+          stop_criteria: {},
+          allowed_endpoints: [],
+          paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
+          local_deploy: { enabled: false, network: null, endpoints: [] },
+          status: "running",
+          error_message: null,
+          started_at: "2026-02-14T22:06:00Z",
+          finished_at: null,
+        },
+      ],
+    }),
+  ),
   http.get("http://localhost/api/ctfs", () =>
     HttpResponse.json({
       items: [
@@ -53,12 +115,20 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("ChallengesPage", () => {
-  it("renders challenges from API", async () => {
+  it("opens a CTF card into a challenge grid and keeps sync available", async () => {
     renderWithProviders(<ChallengesPage />);
 
+    expect(await screen.findByRole("heading", { level: 2, name: "CTF Events" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /disorder ctf/i }));
+
     expect(await screen.findByText("Warmup")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Disorder CTF" })).toBeInTheDocument();
     expect(screen.getByText("misc")).toBeInTheDocument();
-    expect(screen.getByText("50")).toBeInTheDocument();
+    expect(screen.getByText("50 pts")).toBeInTheDocument();
+    expect(screen.getByText("4 runs")).toBeInTheDocument();
+    expect(screen.getByText("1 active")).toBeInTheDocument();
+    expect(screen.getByText("deliverables_produced 1")).toBeInTheDocument();
+    expect(screen.getByText("flag_found 1")).toBeInTheDocument();
+    expect(screen.getByText("blocked/timeout 1")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Import from CTFd" })).toBeInTheDocument();
   });
 });
