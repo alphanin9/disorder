@@ -147,10 +147,11 @@ def test_codex_command_applies_agent_invocation_model_and_extra_args(tmp_path) -
     )
     assert source == "default-codex-command"
     assert stdin_input == "test"
+    assert "--model" in command
+    assert "gpt-5.4" in command
     assert "--profile" in command
     assert "--search" in command
     assert invocation_env == {
-        "CODEX_MODEL": "gpt-5.4",
         "CODEX_BASE_URL": "https://api.example",
     }
 

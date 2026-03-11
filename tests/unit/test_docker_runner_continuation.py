@@ -65,7 +65,7 @@ def test_build_spec_payload_includes_continuation_metadata() -> None:
         id=uuid4(),
         challenge_id=uuid4(),
         backend="codex",
-        agent_invocation={"model": "gpt-5.4", "extra_args": ["--search"], "env": {"CODEX_MODEL": "gpt-5.4"}},
+        agent_invocation={"model": "gpt-5.4", "extra_args": ["--search"], "env": {"CODEX_BASE_URL": "https://api.example"}},
         budgets={"reasoning_effort": "high", "max_minutes": 45},
         stop_criteria={"primary": {"type": "FLAG_FOUND", "config": {"regex": "flag\\{.*?\\}"}}},
         allowed_endpoints=[],

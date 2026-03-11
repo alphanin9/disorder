@@ -28,7 +28,7 @@ def test_run_create_accepts_agent_invocation_and_auto_continuation_policy() -> N
             "agent_invocation": {
                 "model": "gpt-5.4",
                 "extra_args": ["--search", "full"],
-                "env": {"CODEX_MODEL": "gpt-5.4"},
+                "env": {"CODEX_BASE_URL": "https://api.example"},
             },
             "auto_continuation_policy": {
                 "enabled": True,
@@ -52,7 +52,7 @@ def test_run_create_rejects_agent_invocation_env_for_wrong_backend() -> None:
                 "challenge_id": "11111111-1111-1111-1111-111111111111",
                 "backend": "mock",
                 "agent_invocation": {
-                    "env": {"CODEX_MODEL": "gpt-5.4"},
+                    "env": {"CODEX_BASE_URL": "https://api.example"},
                 },
             }
         )

@@ -12,7 +12,6 @@ ContinuationOrigin = Literal["operator", "auto"]
 
 _ALLOWED_AGENT_INVOCATION_ENV_KEYS = {
     "codex": {
-        "CODEX_MODEL",
         "CODEX_BASE_URL",
         "OPENAI_BASE_URL",
         "OPENAI_ORG_ID",

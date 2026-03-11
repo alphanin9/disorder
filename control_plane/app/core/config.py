@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     sandbox_env_passthrough: str = Field(
         default=(
             "OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_ORG_ID,OPENAI_PROJECT_ID,"
-            "CODEX_API_KEY,CODEX_BASE_URL,CODEX_MODEL,CODEX_CLI_CMD,"
+            "CODEX_API_KEY,CODEX_BASE_URL,CODEX_CLI_CMD,"
             "CODEX_JSONL_LIVE_LOG_ONLY,CODEX_FLAG_VERIFY_MCP_ENABLED,"
             "ANTHROPIC_API_KEY,CLAUDE_CODE_CLI_CMD"
         )

@@ -27,7 +27,6 @@ MANAGED_MCP_CONFIG_BEGIN = "# BEGIN DISORDER MANAGED MCP SERVERS"
 MANAGED_MCP_CONFIG_END = "# END DISORDER MANAGED MCP SERVERS"
 AGENT_INVOCATION_ENV_ALLOWLIST = {
     "codex": {
-        "CODEX_MODEL",
         "CODEX_BASE_URL",
         "OPENAI_BASE_URL",
         "OPENAI_ORG_ID",
@@ -698,7 +697,7 @@ def _resolve_backend_command(
             f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         ]
         if model_override:
-            invocation_env.setdefault("CODEX_MODEL", model_override)
+            command.extend(["--model", model_override])
         if profile_override:
             command.extend(["--profile", profile_override])
         if extra_args:
