@@ -469,7 +469,7 @@ def test_create_continuation_run_copies_parent_deliverables_from_local_storage(t
             _valid_result_payload(
                 challenge.id,
                 deliverables=[
-                    {"path": "solve.py", "type": "solve_script", "how_to_run": "python solve.py"},
+                    {"path": "/workspace/run/solve.py", "type": "solve_script", "how_to_run": "python /workspace/run/solve.py"},
                 ],
             ),
             indent=2,
@@ -539,7 +539,11 @@ def test_create_continuation_run_falls_back_to_blob_store_for_parent_deliverable
             _valid_result_payload(
                 challenge.id,
                 deliverables=[
-                    {"path": "artifacts/solve.py", "type": "solve_script", "how_to_run": "python artifacts/solve.py"},
+                    {
+                        "path": "/workspace/run/artifacts/solve.py",
+                        "type": "solve_script",
+                        "how_to_run": "python /workspace/run/artifacts/solve.py",
+                    },
                 ],
             ),
             indent=2,

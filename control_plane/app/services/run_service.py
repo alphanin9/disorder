@@ -190,7 +190,12 @@ def _read_parent_readme(parent_run: Run, settings: Settings) -> str:
 
 
 def _safe_relative_deliverable_path(raw_path: str) -> PurePosixPath | None:
-    candidate = PurePosixPath(str(raw_path).replace("\\", "/"))
+    normalized = str(raw_path).replace("\\", "/").strip()
+    for prefix in ("/workspace/run/", "workspace/run/"):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            break
+    candidate = PurePosixPath(normalized)
     if candidate.is_absolute():
         return None
     if not candidate.parts:

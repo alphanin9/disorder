@@ -103,6 +103,24 @@ def test_normalize_result_payload_preserves_math_deliverables_and_evidence() -> 
     assert normalized["evidence"][1]["ref"] == "matrix.txt"
 
 
+def test_normalize_result_payload_strips_workspace_run_prefix_from_deliverables() -> None:
+    module = _load_agent_runner_module()
+    spec = {"challenge_id": "abc-123", "challenge_name": "Example"}
+    raw = {
+        "status": "deliverable_produced",
+        "deliverables": [
+            {
+                "path": "/workspace/run/solve.py",
+                "type": "solve_script",
+                "how_to_run": "python /workspace/run/solve.py",
+            }
+        ],
+    }
+
+    normalized = module._normalize_result_payload(spec, raw)
+    assert normalized["deliverables"][0]["path"] == "solve.py"
+
+
 def test_blocked_result_includes_failure_reason_code() -> None:
     module = _load_agent_runner_module()
     payload = module._blocked_result({"challenge_id": "abc", "challenge_name": "Example"}, "quota", failure_reason_code="provider_quota_or_auth")

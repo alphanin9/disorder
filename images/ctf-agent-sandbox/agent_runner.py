@@ -915,6 +915,15 @@ def _string_list(value: Any) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
+def _normalize_run_relative_path(value: Any) -> str:
+    rendered = str(value or "").strip().replace("\\", "/")
+    for prefix in ("/workspace/run/", "workspace/run/"):
+        if rendered.startswith(prefix):
+            rendered = rendered[len(prefix) :]
+            break
+    return rendered
+
+
 def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str, Any]:
     if not isinstance(raw_result, dict):
         return _blocked_result(spec, "result.json did not contain an object", failure_reason_code="result_validation_failed")
@@ -988,7 +997,7 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
                 continue
             if not isinstance(entry, dict):
                 continue
-            path = str(entry.get("path") or "").strip()
+            path = _normalize_run_relative_path(entry.get("path"))
             if not path:
                 continue
             dtype = str(entry.get("type") or "other").strip().lower()
