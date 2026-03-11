@@ -223,6 +223,29 @@ def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> 
     assert url is None
 
 
+def test_render_continuation_context_mentions_deliverable_bundle_paths() -> None:
+    module = _load_agent_runner_module()
+    rendered = module._render_continuation_context(
+        {
+            "continuation": {
+                "is_continuation": True,
+                "parent_run_id": "run-1",
+                "type": "strategy_change",
+                "depth": 2,
+                "input": "keep going",
+                "mount_path": "/workspace/continuation",
+                "parent_result_path": "/workspace/continuation/parent_result.json",
+                "parent_readme_path": "/workspace/continuation/parent_readme.md",
+                "request_path": "/workspace/continuation/continuation_request.json",
+                "deliverables_manifest_path": "/workspace/continuation/deliverables_manifest.json",
+                "deliverables_mount_path": "/workspace/continuation/deliverables",
+            }
+        }
+    )
+    assert "/workspace/continuation/deliverables_manifest.json" in rendered
+    assert "/workspace/continuation/deliverables" in rendered
+
+
 def test_accept_ida_eula_disabled_by_env(monkeypatch) -> None:
     module = _load_agent_runner_module()
     monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "0")

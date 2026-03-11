@@ -643,6 +643,21 @@ class DockerRunner:
                 "input": run.continuation_input,
                 "type": run.continuation_type,
                 "mount_path": (run.paths or {}).get("continuation_mount"),
+                "parent_result_path": "/workspace/continuation/parent_result.json"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "parent_readme_path": "/workspace/continuation/parent_readme.md"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "request_path": "/workspace/continuation/continuation_request.json"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "deliverables_mount_path": "/workspace/continuation/deliverables"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "deliverables_manifest_path": "/workspace/continuation/deliverables_manifest.json"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
             },
         }
 

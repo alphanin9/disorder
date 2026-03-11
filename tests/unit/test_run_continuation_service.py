@@ -13,10 +13,13 @@ from control_plane.app.services.run_service import RunContinuationError, create_
 
 
 class _FakeBlobStore:
-    def __init__(self, result_payload: dict) -> None:
+    def __init__(self, result_payload: dict, objects: dict[str, bytes] | None = None) -> None:
         self._result_payload = result_payload
+        self._objects = objects or {}
 
-    def get_bytes(self, _object_key: str) -> bytes:
+    def get_bytes(self, object_key: str) -> bytes:
+        if object_key in self._objects:
+            return self._objects[object_key]
         return json.dumps(self._result_payload, indent=2).encode("utf-8")
 
 
@@ -82,6 +85,25 @@ def _make_parent_run(challenge_id):
     )
 
 
+def _valid_result_payload(challenge_id, *, deliverables: list[dict] | None = None) -> dict:
+    return {
+        "challenge_id": str(challenge_id),
+        "challenge_name": "Warmup",
+        "status": "deliverable_produced",
+        "stop_criterion_met": "secondary",
+        "flag_verification": {
+            "method": "none",
+            "verified": False,
+            "details": "deliverables ready",
+        },
+        "deliverables": deliverables or [],
+        "repro_steps": [],
+        "key_findings": [],
+        "evidence": [],
+        "notes": "",
+    }
+
+
 def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> None:
     challenge = ChallengeManifest(
         id=uuid4(),
@@ -140,7 +162,7 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
         parent_run_id=parent_run.id,
         request=request,
         settings=settings,
-        blob_store=_FakeBlobStore(result_payload={"status": "deliverable_produced"}),
+        blob_store=_FakeBlobStore(result_payload=_valid_result_payload(challenge.id)),
     )
 
     assert child_run.parent_run_id == parent_run.id
@@ -157,6 +179,7 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
     assert (context_dir / "parent_readme.md").exists()
     request_payload = json.loads((context_dir / "continuation_request.json").read_text(encoding="utf-8"))
     assert request_payload["message"] == "recheck stack canary with pwndbg"
+    assert (context_dir / "deliverables_manifest.json").exists()
     assert session.commit_calls == 1
     assert session.rollback_calls == 0
     assert session.flush_calls == 1
@@ -410,3 +433,146 @@ def test_create_continuation_run_merges_agent_invocation_and_policy_override(tmp
         ),
         "inherit_agent_invocation": True,
     }
+
+
+def test_create_continuation_run_copies_parent_deliverables_from_local_storage(tmp_path) -> None:
+    challenge = ChallengeManifest(
+        id=uuid4(),
+        ctf_id=uuid4(),
+        platform="manual",
+        platform_challenge_id="chal-1",
+        name="Warmup",
+        category="misc",
+        points=100,
+        description_md="desc",
+        description_raw=None,
+        artifacts=[],
+        remote_endpoints=[],
+        local_deploy_hints={},
+        flag_regex=None,
+    )
+    parent_run = _make_parent_run(challenge.id)
+    parent_result = RunResult(
+        run_id=parent_run.id,
+        status="deliverable_produced",
+        result_json_object_key="runs/parent/result.json",
+        logs_object_key="runs/parent/logs.txt",
+        started_at=parent_run.started_at,
+        finished_at=datetime.now(timezone.utc),
+    )
+    parent_run_dir = tmp_path / str(parent_run.id) / "run"
+    parent_run_dir.mkdir(parents=True)
+    (parent_run_dir / "README.md").write_text("# Parent\n\nFindings", encoding="utf-8")
+    (parent_run_dir / "solve.py").write_text("print('hi')\n", encoding="utf-8")
+    (parent_run_dir / "result.json").write_text(
+        json.dumps(
+            _valid_result_payload(
+                challenge.id,
+                deliverables=[
+                    {"path": "solve.py", "type": "solve_script", "how_to_run": "python solve.py"},
+                ],
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    session = _FakeSession(challenge=challenge, parent_run=parent_run, parent_result=parent_result)
+    settings = SimpleNamespace(
+        enable_run_continuation=True,
+        max_continuation_message_chars=500,
+        max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
+        runs_dir=tmp_path,
+    )
+
+    child_run = create_continuation_run(
+        session,
+        parent_run_id=parent_run.id,
+        request=RunContinueRequest(message="reuse exploit"),
+        settings=settings,
+        blob_store=_FakeBlobStore(result_payload=_valid_result_payload(challenge.id)),
+    )
+
+    context_dir = tmp_path / str(child_run.id) / "continuation"
+    copied = context_dir / "deliverables" / "solve.py"
+    assert copied.exists()
+    assert copied.read_text(encoding="utf-8") == "print('hi')\n"
+    manifest = json.loads((context_dir / "deliverables_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["copied_count"] == 1
+    assert manifest["items"][0]["source"] == "local"
+    assert manifest["items"][0]["bundle_path"] == "deliverables/solve.py"
+
+
+def test_create_continuation_run_falls_back_to_blob_store_for_parent_deliverables(tmp_path) -> None:
+    challenge = ChallengeManifest(
+        id=uuid4(),
+        ctf_id=uuid4(),
+        platform="manual",
+        platform_challenge_id="chal-1",
+        name="Warmup",
+        category="misc",
+        points=100,
+        description_md="desc",
+        description_raw=None,
+        artifacts=[],
+        remote_endpoints=[],
+        local_deploy_hints={},
+        flag_regex=None,
+    )
+    parent_run = _make_parent_run(challenge.id)
+    parent_result = RunResult(
+        run_id=parent_run.id,
+        status="deliverable_produced",
+        result_json_object_key="runs/parent/result.json",
+        logs_object_key="runs/parent/logs.txt",
+        started_at=parent_run.started_at,
+        finished_at=datetime.now(timezone.utc),
+    )
+    parent_run_dir = tmp_path / str(parent_run.id) / "run"
+    parent_run_dir.mkdir(parents=True)
+    (parent_run_dir / "README.md").write_text("# Parent\n\nFindings", encoding="utf-8")
+    (parent_run_dir / "result.json").write_text(
+        json.dumps(
+            _valid_result_payload(
+                challenge.id,
+                deliverables=[
+                    {"path": "artifacts/solve.py", "type": "solve_script", "how_to_run": "python artifacts/solve.py"},
+                ],
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    session = _FakeSession(challenge=challenge, parent_run=parent_run, parent_result=parent_result)
+    settings = SimpleNamespace(
+        enable_run_continuation=True,
+        max_continuation_message_chars=500,
+        max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
+        runs_dir=tmp_path,
+    )
+    blob_store = _FakeBlobStore(
+        result_payload=_valid_result_payload(challenge.id),
+        objects={f"runs/{parent_run.id}/deliverables/artifacts/solve.py": b"print('blob')\n"},
+    )
+
+    child_run = create_continuation_run(
+        session,
+        parent_run_id=parent_run.id,
+        request=RunContinueRequest(message="retry"),
+        settings=settings,
+        blob_store=blob_store,
+    )
+
+    context_dir = tmp_path / str(child_run.id) / "continuation"
+    copied = context_dir / "deliverables" / "artifacts" / "solve.py"
+    assert copied.exists()
+    assert copied.read_text(encoding="utf-8") == "print('blob')\n"
+    manifest = json.loads((context_dir / "deliverables_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["items"][0]["source"] == "blob"

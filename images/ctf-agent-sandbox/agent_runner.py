@@ -150,6 +150,11 @@ def _render_continuation_context(spec: dict[str, Any]) -> str:
     depth = continuation.get("depth")
     message = str(continuation.get("input") or "").strip()
     mount_path = str(continuation.get("mount_path") or "").strip()
+    parent_result_path = str(continuation.get("parent_result_path") or "").strip()
+    parent_readme_path = str(continuation.get("parent_readme_path") or "").strip()
+    request_path = str(continuation.get("request_path") or "").strip()
+    deliverables_mount_path = str(continuation.get("deliverables_mount_path") or "").strip()
+    deliverables_manifest_path = str(continuation.get("deliverables_manifest_path") or "").strip()
     lines = [
         f"- Parent run id: {parent_run_id}",
         f"- Continuation type: {continuation_type}",
@@ -161,9 +166,11 @@ def _render_continuation_context(spec: dict[str, Any]) -> str:
         lines.extend(
             [
                 f"- Parent context mount: {mount_path}",
-                "  - parent_result.json",
-                "  - parent_readme.md",
-                "  - continuation_request.json",
+                f"- Parent result path: {parent_result_path or (mount_path + '/parent_result.json')}",
+                f"- Parent README path: {parent_readme_path or (mount_path + '/parent_readme.md')}",
+                f"- Continuation request path: {request_path or (mount_path + '/continuation_request.json')}",
+                f"- Deliverables manifest path: {deliverables_manifest_path or (mount_path + '/deliverables_manifest.json')}",
+                f"- Deliverables directory: {deliverables_mount_path or (mount_path + '/deliverables')}",
             ]
         )
     lines.append("- Verify parent context before relying on it.")

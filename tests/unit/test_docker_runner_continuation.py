@@ -88,4 +88,6 @@ def test_build_spec_payload_includes_continuation_metadata() -> None:
     assert spec["continuation"]["type"] == "hint"
     assert spec["continuation"]["depth"] == 2
     assert spec["continuation"]["mount_path"] == "/workspace/continuation"
+    assert spec["continuation"]["deliverables_mount_path"] == "/workspace/continuation/deliverables"
+    assert spec["continuation"]["deliverables_manifest_path"] == "/workspace/continuation/deliverables_manifest.json"
     assert spec["agent_invocation"]["model"] == "gpt-5.4"
