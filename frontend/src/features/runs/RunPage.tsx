@@ -118,6 +118,9 @@ export function RunPage() {
   const [continuationType, setContinuationType] = useState<RunContinuationType>("hint");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState("");
   const [stopCriteriaOverride, setStopCriteriaOverride] = useState("");
+  const [continuationModel, setContinuationModel] = useState("");
+  const [continuationInvocationJson, setContinuationInvocationJson] = useState("");
+  const [continuationAutoPolicyJson, setContinuationAutoPolicyJson] = useState("");
   const [reuseParentArtifacts, setReuseParentArtifacts] = useState(true);
   const [continuationError, setContinuationError] = useState<string | null>(null);
 
@@ -158,6 +161,9 @@ export function RunPage() {
       setContinuationMessage("");
       setTimeLimitSeconds("");
       setStopCriteriaOverride("");
+      setContinuationModel("");
+      setContinuationInvocationJson("");
+      setContinuationAutoPolicyJson("");
       setContinuationError(null);
       void queryClient.invalidateQueries({ queryKey: ["run", runId] });
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
@@ -279,8 +285,10 @@ export function RunPage() {
       ["Challenge / CTF", challengeDisplay || runMeta?.challenge_id || "-"],
       ["Backend", runMeta?.backend ?? "-"],
       ["Continuation depth", String(runMeta?.continuation_depth ?? 0)],
+      ["Continuation origin", runMeta?.continuation_origin ?? "operator"],
       ["Reasoning", String((runMeta?.budgets as Record<string, unknown> | undefined)?.reasoning_effort ?? "medium")],
       ["Budget (minutes)", String((runMeta?.budgets as Record<string, unknown> | undefined)?.max_minutes ?? 30)],
+      ["Model", runMeta?.agent_invocation?.model ?? "-"],
       ["Started", formatDateTime(runMeta?.started_at)],
       ["Finished", formatDateTime(runMeta?.finished_at)],
     ],
@@ -372,6 +380,17 @@ export function RunPage() {
             </div>
           </div>
         ) : null}
+        {runMeta?.auto_continuation_policy ? (
+          <div className="mt-4 rounded-md border border-line bg-surface-muted p-3 text-sm">
+            <p className="text-xs uppercase tracking-wide text-ink-subtle">Auto continuation</p>
+            <p className="mt-1">
+              Target: {runMeta.auto_continuation_policy.target?.final_status ?? "flag_found"} | Max depth: {runMeta.auto_continuation_policy.max_depth ?? "-"}
+            </p>
+            <p className="text-xs text-ink-muted">
+              Statuses: {(runMeta.auto_continuation_policy.when?.statuses ?? []).join(", ") || "none"}
+            </p>
+          </div>
+        ) : null}
 
         {showContinuationForm ? (
           <div className="mt-4 space-y-3 rounded-md border border-line bg-surface-muted p-3">
@@ -431,6 +450,41 @@ export function RunPage() {
                 placeholder='{"secondary":{"config":{"required_files":["README.md","solve.py"]}}}'
               />
             </label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="block space-y-1 text-xs text-ink-muted">
+                <span>Model override</span>
+                <input
+                  className={inputCompactClasses}
+                  value={continuationModel}
+                  onChange={(event) => {
+                    setContinuationModel(event.target.value);
+                  }}
+                  placeholder="gpt-5.4"
+                />
+              </label>
+              <label className="block space-y-1 text-xs text-ink-muted">
+                <span>Agent invocation override (JSON object)</span>
+                <textarea
+                  className={`${inputCompactClasses} min-h-24 font-mono text-xs`}
+                  value={continuationInvocationJson}
+                  onChange={(event) => {
+                    setContinuationInvocationJson(event.target.value);
+                  }}
+                  placeholder='{"extra_args":["--search","full"]}'
+                />
+              </label>
+            </div>
+            <label className="block space-y-1 text-xs text-ink-muted">
+              <span>Auto continuation policy override (JSON object, optional)</span>
+              <textarea
+                className={`${inputCompactClasses} min-h-24 font-mono text-xs`}
+                value={continuationAutoPolicyJson}
+                onChange={(event) => {
+                  setContinuationAutoPolicyJson(event.target.value);
+                }}
+                placeholder='{"enabled":false}'
+              />
+            </label>
             <label className="flex items-center gap-2 text-xs text-ink-muted">
               <input
                 type="checkbox"
@@ -456,6 +510,10 @@ export function RunPage() {
                   }
                   let parsedStopCriteria: Record<string, unknown> | undefined;
                   const rawStop = stopCriteriaOverride.trim();
+                  let parsedInvocation: Record<string, unknown> | undefined;
+                  const rawInvocation = continuationInvocationJson.trim();
+                  let parsedAutoPolicy: Record<string, unknown> | undefined;
+                  const rawAutoPolicy = continuationAutoPolicyJson.trim();
                   if (rawStop) {
                     try {
                       const parsed = JSON.parse(rawStop);
@@ -466,6 +524,32 @@ export function RunPage() {
                       parsedStopCriteria = parsed as Record<string, unknown>;
                     } catch {
                       setContinuationError("Stop criteria override is not valid JSON.");
+                      return;
+                    }
+                  }
+                  if (rawInvocation) {
+                    try {
+                      const parsed = JSON.parse(rawInvocation);
+                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                        setContinuationError("Agent invocation override must be a JSON object.");
+                        return;
+                      }
+                      parsedInvocation = parsed as Record<string, unknown>;
+                    } catch {
+                      setContinuationError("Agent invocation override is not valid JSON.");
+                      return;
+                    }
+                  }
+                  if (rawAutoPolicy) {
+                    try {
+                      const parsed = JSON.parse(rawAutoPolicy);
+                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                        setContinuationError("Auto continuation policy override must be a JSON object.");
+                        return;
+                      }
+                      parsedAutoPolicy = parsed as Record<string, unknown>;
+                    } catch {
+                      setContinuationError("Auto continuation policy override is not valid JSON.");
                       return;
                     }
                   }
@@ -485,6 +569,16 @@ export function RunPage() {
                   }
                   if (parsedStopCriteria) {
                     payload.stop_criteria_override = parsedStopCriteria;
+                  }
+                  const trimmedModel = continuationModel.trim();
+                  if (parsedInvocation || trimmedModel) {
+                    payload.agent_invocation_override = {
+                      ...(parsedInvocation ?? {}),
+                      ...(trimmedModel ? { model: trimmedModel } : {}),
+                    };
+                  }
+                  if (parsedAutoPolicy) {
+                    payload.auto_continuation_policy_override = parsedAutoPolicy;
                   }
 
                   setContinuationError(null);

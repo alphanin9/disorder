@@ -37,6 +37,7 @@ def test_normalize_result_payload_maps_non_contract_shape() -> None:
     assert normalized["challenge_id"] == "abc-123"
     assert normalized["challenge_name"] == "Example"
     assert normalized["status"] == "blocked"
+    assert normalized["failure_reason_code"] == "none"
     assert normalized["flag_verification"]["method"] == "none"
     assert normalized["evidence"][0]["ref"] == "README.md"
 
@@ -100,6 +101,12 @@ def test_normalize_result_payload_preserves_math_deliverables_and_evidence() -> 
     assert normalized["evidence"][0]["kind"] == "command"
     assert normalized["evidence"][1]["kind"] == "file"
     assert normalized["evidence"][1]["ref"] == "matrix.txt"
+
+
+def test_blocked_result_includes_failure_reason_code() -> None:
+    module = _load_agent_runner_module()
+    payload = module._blocked_result({"challenge_id": "abc", "challenge_name": "Example"}, "quota", failure_reason_code="provider_quota_or_auth")
+    assert payload["failure_reason_code"] == "provider_quota_or_auth"
 
 
 def test_codex_command_defaults_without_inline_mcp_overrides(tmp_path) -> None:

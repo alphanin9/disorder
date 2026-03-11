@@ -111,7 +111,12 @@ def _seed_writable_codex_home() -> None:
         )
 
 
-def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
+def _blocked_result(
+    spec: dict[str, Any],
+    message: str,
+    *,
+    failure_reason_code: str = "none",
+) -> dict[str, Any]:
     return {
         "challenge_id": spec.get("challenge_id", ""),
         "challenge_name": spec.get("challenge_name", ""),
@@ -122,6 +127,8 @@ def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
             "verified": False,
             "details": message,
         },
+        "failure_reason_code": failure_reason_code,
+        "failure_reason_detail": message,
         "deliverables": [],
         "repro_steps": [],
         "key_findings": [],
@@ -727,7 +734,7 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                 "or upload tagged Codex auth files via the control-plane auth API/UI."
             )
             _write_readme("# Blocked\n\n" + message + "\n")
-            _write_result(_blocked_result(spec, message))
+            _write_result(_blocked_result(spec, message, failure_reason_code="provider_quota_or_auth"))
             return 2
         idalib_process, ida_mcp_url = _start_idalib_mcp_if_available()
         _write_managed_codex_mcp_config(ida_url=ida_mcp_url)
@@ -760,14 +767,14 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             "to a runnable command template using {prompt_file} and {run_dir}."
         )
         _write_readme("# Blocked\n\n" + error + "\n")
-        _write_result(_blocked_result(spec, error))
+        _write_result(_blocked_result(spec, error, failure_reason_code="backend_binary_missing"))
         _stop_background_process(idalib_process, "idalib-mcp")
         _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     if shutil.which(command[0]) is None:
         _write_readme("# Blocked\n\nConfigured backend binary not found.\n")
-        _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}"))
+        _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}", failure_reason_code="backend_binary_missing"))
         _stop_background_process(idalib_process, "idalib-mcp")
         _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
@@ -847,7 +854,13 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             if not (RUN_DIR / "README.md").exists():
                 _write_readme("# Blocked\n\n" + message + "\n")
             if not (RUN_DIR / "result.json").exists():
-                _write_result(_blocked_result(spec, message))
+                _write_result(
+                    _blocked_result(
+                        spec,
+                        message,
+                        failure_reason_code=_backend_failure_reason_code(backend, stdout_text, stderr_text),
+                    )
+                )
 
         return returncode
     finally:
@@ -879,6 +892,24 @@ def _backend_failure_message(
     return f"Backend command failed with exit code {returncode}"
 
 
+def _backend_failure_reason_code(backend: str, stdout: str, stderr: str) -> str:
+    output = f"{stdout}\n{stderr}".lower()
+    if backend == "codex":
+        if any(
+            token in output
+            for token in (
+                "401",
+                "unauthorized",
+                "invalid api key",
+                "authentication failed",
+                "429",
+                "rate limit",
+            )
+        ):
+            return "provider_quota_or_auth"
+    return "sandbox_exit_nonzero"
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -887,7 +918,7 @@ def _string_list(value: Any) -> list[str]:
 
 def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str, Any]:
     if not isinstance(raw_result, dict):
-        return _blocked_result(spec, "result.json did not contain an object")
+        return _blocked_result(spec, "result.json did not contain an object", failure_reason_code="result_validation_failed")
 
     challenge_id = str(raw_result.get("challenge_id") or spec.get("challenge_id") or "")
     challenge_name = str(
@@ -999,6 +1030,8 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
         "status": status,
         "stop_criterion_met": stop_criterion_met,
         "flag": flag,
+        "failure_reason_code": str(raw_result.get("failure_reason_code") or "none").strip().lower() or "none",
+        "failure_reason_detail": str(raw_result.get("failure_reason_detail") or details).strip(),
         "flag_verification": {
             "method": method,
             "verified": verified,
@@ -1022,13 +1055,13 @@ def _ensure_contract(spec: dict[str, Any]) -> int:
         _write_readme("# Blocked\n\nMissing README.md from backend run.\n")
 
     if not result_path.exists():
-        _write_result(_blocked_result(spec, "Missing result.json from backend run"))
+        _write_result(_blocked_result(spec, "Missing result.json from backend run", failure_reason_code="sandbox_output_contract_missing"))
         return 3
 
     try:
         parsed = json.loads(result_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        _write_result(_blocked_result(spec, f"Invalid result.json: {exc}"))
+        _write_result(_blocked_result(spec, f"Invalid result.json: {exc}", failure_reason_code="result_validation_failed"))
         return 3
 
     normalized = _normalize_result_payload(spec, parsed)
@@ -1085,7 +1118,7 @@ def main() -> int:
 
     message = f"Unsupported backend: {backend}"
     _write_readme("# Blocked\n\n" + message + "\n")
-    _write_result(_blocked_result(spec, message))
+    _write_result(_blocked_result(spec, message, failure_reason_code="backend_binary_missing"))
     return 2
 
 

@@ -355,6 +355,7 @@ def create_continuation_run(
     settings: Settings,
     blob_store: Any,
     continuation_origin: str = "operator",
+    inherit_parent_agent_invocation: bool = True,
 ) -> Run:
     if not settings.enable_run_continuation:
         raise RunContinuationError("Run continuation is disabled", status_code=403)
@@ -384,7 +385,8 @@ def create_continuation_run(
         raise RunContinuationError("Challenge not found for parent run", status_code=404)
 
     try:
-        merged_agent_invocation = _merge_agent_invocation(parent_run.agent_invocation, request.agent_invocation_override)
+        base_agent_invocation = parent_run.agent_invocation if inherit_parent_agent_invocation else {}
+        merged_agent_invocation = _merge_agent_invocation(base_agent_invocation, request.agent_invocation_override)
         validate_agent_invocation_backend(parent_run.backend, AgentInvocationConfig.model_validate(merged_agent_invocation))
     except ValueError as exc:
         raise RunContinuationError(str(exc), status_code=422) from exc
