@@ -6,13 +6,15 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
 import { createRun, getChallenge, getCtfs, getRuns, updateChallenge, uploadChallengeArtifact } from "@/api/endpoints";
-import type { ChallengeArtifact, RunCreateRequest } from "@/api/models";
+import type { AutoContinuationPolicyPayload, ChallengeArtifact, RunCreateRequest } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { inputClasses } from "@/components/ui/forms";
 import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 import { formatDateTime } from "@/features/runs/utils";
+
+const AUTO_CONTINUATION_STATUSES = new Set(["blocked", "timeout", "flag_found", "deliverable_produced"] as const);
 
 const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
@@ -221,7 +223,7 @@ export function ChallengeDetailPage() {
               ...(model ? { model } : {}),
             }
           : undefined;
-      const autoContinuationPolicy =
+      const autoContinuationPolicy: AutoContinuationPolicyPayload | undefined =
         values.auto_continue_enabled
           ? {
               enabled: true,
@@ -233,7 +235,9 @@ export function ChallengeDetailPage() {
                 statuses: values.auto_continue_statuses
                   .split(",")
                   .map((value) => value.trim())
-                  .filter(Boolean),
+                  .filter((value): value is "blocked" | "timeout" | "flag_found" | "deliverable_produced" =>
+                    AUTO_CONTINUATION_STATUSES.has(value as "blocked" | "timeout" | "flag_found" | "deliverable_produced"),
+                  ),
               },
               on_blocked_reasons: values.auto_continue_reason_codes
                 .split(",")
