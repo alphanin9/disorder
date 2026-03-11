@@ -31,11 +31,17 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
    - `python -m cli list`
 4. Start run:
    - `python -m cli run --challenge-id <uuid> --backend mock`
+   - Model override example:
+     - `python -m cli run --challenge-id <uuid> --backend codex --model gpt-5.4`
+   - Auto-continuation example:
+     - `python -m cli run --challenge-id <uuid> --backend codex --auto-continue-until flag_found --auto-continue-max-depth 5 --auto-continue-on blocked,timeout`
 5. Inspect outputs:
    - `python -m cli logs <run_id>`
    - `python -m cli result <run_id>`
    - Continue a completed run:
      - `python -m cli runs continue <parent_run_id> --message "refine exploit for PIE"`
+     - Continue with model override:
+       - `python -m cli runs continue <parent_run_id> --message "retry with alternate model" --model gpt-5.4`
 6. One-command demo flow (seed + run + print result):
    - `make demo`
 
