@@ -1,7 +1,7 @@
 """run invocation and auto continuation metadata
 
-Revision ID: 0002_run_invocation_and_auto_continuation
-Revises: 0001_initial
+Revision ID: 0005_run_invocation_and_auto_continuation
+Revises: 0004_ctfd_per_ctf_cfg
 Create Date: 2026-03-12 00:00:00
 """
 
@@ -12,8 +12,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = "0002_run_invocation_and_auto_continuation"
-down_revision: str | None = "0001_initial"
+revision: str = "0005_run_invocation_and_auto_continuation"
+down_revision: str | None = "0004_ctfd_per_ctf_cfg"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
