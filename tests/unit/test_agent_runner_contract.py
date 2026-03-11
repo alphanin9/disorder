@@ -107,12 +107,45 @@ def test_codex_command_defaults_without_inline_mcp_overrides(tmp_path) -> None:
     prompt_file = tmp_path / "prompt.txt"
     prompt_file.write_text("test", encoding="utf-8")
 
-    command, stdin_input, source = module._resolve_backend_command("codex", prompt_file)
+    command, stdin_input, source, invocation_env = module._resolve_backend_command(
+        {"backend": "codex"},
+        "codex",
+        prompt_file,
+    )
     assert source == "default-codex-command"
     assert stdin_input == "test"
+    assert invocation_env == {}
     joined = " ".join(command)
     assert "--json" in command
     assert 'model_reasoning_effort="medium"' in joined
+
+
+def test_codex_command_applies_agent_invocation_model_and_extra_args(tmp_path) -> None:
+    module = _load_agent_runner_module()
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("test", encoding="utf-8")
+
+    command, stdin_input, source, invocation_env = module._resolve_backend_command(
+        {
+            "backend": "codex",
+            "agent_invocation": {
+                "model": "gpt-5.4",
+                "profile": "ctf",
+                "extra_args": ["--search", "full"],
+                "env": {"CODEX_BASE_URL": "https://api.example", "OPENAI_API_KEY": "ignore-me"},
+            },
+        },
+        "codex",
+        prompt_file,
+    )
+    assert source == "default-codex-command"
+    assert stdin_input == "test"
+    assert "--profile" in command
+    assert "--search" in command
+    assert invocation_env == {
+        "CODEX_MODEL": "gpt-5.4",
+        "CODEX_BASE_URL": "https://api.example",
+    }
 
 
 def test_write_managed_codex_mcp_config_includes_flag_verify_by_default(

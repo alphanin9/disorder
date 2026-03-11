@@ -632,6 +632,7 @@ class DockerRunner:
             "reasoning_effort": reasoning_effort,
             "budgets": run.budgets,
             "stop_criteria": run.stop_criteria,
+            "agent_invocation": run.agent_invocation or {},
             "allowed_endpoints": run.allowed_endpoints,
             "paths": run.paths,
             "local_deploy": run.local_deploy,

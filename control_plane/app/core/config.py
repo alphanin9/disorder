@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     enable_run_continuation: bool = Field(default=True)
     max_continuation_message_chars: int = Field(default=4000)
     max_continuation_depth: int = Field(default=5)
+    max_continuation_deliverables: int = Field(default=16)
+    max_continuation_deliverable_bytes: int = Field(default=5 * 1024 * 1024)
+    max_continuation_total_bytes: int = Field(default=20 * 1024 * 1024)
     sandbox_env_passthrough: str = Field(
         default=(
             "OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_ORG_ID,OPENAI_PROJECT_ID,"

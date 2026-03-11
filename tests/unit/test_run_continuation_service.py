@@ -70,12 +70,15 @@ def _make_parent_run(challenge_id):
             "primary": {"type": "FLAG_FOUND", "config": {"regex": "flag\\{.*?\\}"}},
             "secondary": {"type": "DELIVERABLES_READY", "config": {"required_files": ["README.md"]}},
         },
+        agent_invocation={"model": "gpt-5", "extra_args": ["--json"], "env": {"OPENAI_BASE_URL": "https://api.example"}},
+        auto_continuation_policy={"enabled": True, "max_depth": 3, "when": {"statuses": ["blocked"]}},
         allowed_endpoints=[],
         paths={"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"},
         local_deploy={"enabled": False, "network": None, "endpoints": []},
         status="deliverable_produced",
         started_at=datetime.now(timezone.utc),
         continuation_depth=0,
+        continuation_origin="operator",
     )
 
 
@@ -114,6 +117,9 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
         enable_run_continuation=True,
         max_continuation_message_chars=500,
         max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
         runs_dir=tmp_path,
     )
 
@@ -143,6 +149,8 @@ def test_create_continuation_run_creates_child_and_context_bundle(tmp_path) -> N
     assert child_run.continuation_type == "hint"
     assert child_run.budgets["max_minutes"] == 2
     assert child_run.paths["continuation_mount"] == "/workspace/continuation"
+    assert child_run.agent_invocation["model"] == "gpt-5"
+    assert child_run.auto_continuation_policy["enabled"] is True
 
     context_dir = tmp_path / str(child_run.id) / "continuation"
     assert (context_dir / "parent_result.json").exists()
@@ -178,6 +186,9 @@ def test_create_continuation_run_rejects_non_terminal_parent(tmp_path) -> None:
         enable_run_continuation=True,
         max_continuation_message_chars=500,
         max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
         runs_dir=tmp_path,
     )
 
@@ -215,6 +226,9 @@ def test_create_continuation_run_rejects_depth_limit(tmp_path) -> None:
         enable_run_continuation=True,
         max_continuation_message_chars=500,
         max_continuation_depth=2,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
         runs_dir=tmp_path,
     )
 
@@ -251,6 +265,9 @@ def test_create_continuation_run_rejects_long_message(tmp_path) -> None:
         enable_run_continuation=True,
         max_continuation_message_chars=8,
         max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
         runs_dir=tmp_path,
     )
 
@@ -294,6 +311,9 @@ def test_create_continuation_run_rolls_back_when_context_bundle_write_fails(tmp_
         enable_run_continuation=True,
         max_continuation_message_chars=500,
         max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
         runs_dir=tmp_path,
     )
 
@@ -317,3 +337,76 @@ def test_create_continuation_run_rolls_back_when_context_bundle_write_fails(tmp_
     assert session.flush_calls == 1
     assert session.commit_calls == 0
     assert session.rollback_calls == 1
+
+
+def test_create_continuation_run_merges_agent_invocation_and_policy_override(tmp_path) -> None:
+    challenge = ChallengeManifest(
+        id=uuid4(),
+        ctf_id=uuid4(),
+        platform="manual",
+        platform_challenge_id="chal-1",
+        name="Warmup",
+        category="misc",
+        points=100,
+        description_md="desc",
+        description_raw=None,
+        artifacts=[],
+        remote_endpoints=[],
+        local_deploy_hints={},
+        flag_regex=None,
+    )
+    parent_run = _make_parent_run(challenge.id)
+    session = _FakeSession(challenge=challenge, parent_run=parent_run, parent_result=None)
+    settings = SimpleNamespace(
+        enable_run_continuation=True,
+        max_continuation_message_chars=500,
+        max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
+        runs_dir=tmp_path,
+    )
+
+    child_run = create_continuation_run(
+        session,
+        parent_run_id=parent_run.id,
+        request=RunContinueRequest.model_validate(
+            {
+                "message": "switch models",
+                "agent_invocation_override": {
+                    "model": "gpt-5.4",
+                    "env": {"CODEX_BASE_URL": "https://alt.example"},
+                    "extra_args": ["--new-flag"],
+                },
+                "auto_continuation_policy_override": {
+                    "enabled": False,
+                    "max_depth": 2,
+                },
+            }
+        ),
+        settings=settings,
+        blob_store=_FakeBlobStore(result_payload={"status": "blocked"}),
+    )
+
+    assert child_run.agent_invocation == {
+        "model": "gpt-5.4",
+        "extra_args": ["--new-flag"],
+        "env": {
+            "OPENAI_BASE_URL": "https://api.example",
+            "CODEX_BASE_URL": "https://alt.example",
+        },
+    }
+    assert child_run.auto_continuation_policy == {
+        "enabled": False,
+        "max_depth": 2,
+        "target": {"final_status": "flag_found"},
+        "when": {"statuses": ["blocked", "timeout"], "require_contract_match": False},
+        "on_blocked_reasons": [],
+        "continuation_type": "strategy_change",
+        "message_template": (
+            "Previous run {parent_run_id} ended with status {parent_status} "
+            "and reason {failure_reason_code}. Reuse /workspace/continuation "
+            "deliverables where useful and continue toward {target_final_status}."
+        ),
+        "inherit_agent_invocation": True,
+    }

@@ -20,6 +20,44 @@ def test_run_create_accepts_budget_overrides() -> None:
     assert payload.budgets.max_commands == 120
 
 
+def test_run_create_accepts_agent_invocation_and_auto_continuation_policy() -> None:
+    payload = RunCreateRequest.model_validate(
+        {
+            "challenge_id": "11111111-1111-1111-1111-111111111111",
+            "backend": "codex",
+            "agent_invocation": {
+                "model": "gpt-5.4",
+                "extra_args": ["--search", "full"],
+                "env": {"CODEX_MODEL": "gpt-5.4"},
+            },
+            "auto_continuation_policy": {
+                "enabled": True,
+                "max_depth": 4,
+                "target": {"final_status": "flag_found"},
+                "when": {"statuses": ["blocked", "timeout"]},
+                "on_blocked_reasons": ["provider_quota_or_auth"],
+            },
+        }
+    )
+    assert payload.agent_invocation is not None
+    assert payload.agent_invocation.model == "gpt-5.4"
+    assert payload.auto_continuation_policy is not None
+    assert payload.auto_continuation_policy.max_depth == 4
+
+
+def test_run_create_rejects_agent_invocation_env_for_wrong_backend() -> None:
+    with pytest.raises(ValidationError):
+        RunCreateRequest.model_validate(
+            {
+                "challenge_id": "11111111-1111-1111-1111-111111111111",
+                "backend": "mock",
+                "agent_invocation": {
+                    "env": {"CODEX_MODEL": "gpt-5.4"},
+                },
+            }
+        )
+
+
 def test_run_create_rejects_invalid_max_minutes() -> None:
     with pytest.raises(ValidationError):
         RunCreateRequest.model_validate(
@@ -72,3 +110,23 @@ def test_run_continue_rejects_non_object_stop_override_entry() -> None:
                 "stop_criteria_override": {"primary": "FLAG_FOUND"},
             }
         )
+
+
+def test_run_continue_accepts_agent_invocation_override() -> None:
+    payload = RunContinueRequest.model_validate(
+        {
+            "message": "retry with different model",
+            "agent_invocation_override": {
+                "model": "gpt-5.4",
+                "extra_args": ["--full-auto"],
+            },
+            "auto_continuation_policy_override": {
+                "enabled": False,
+                "max_depth": 2,
+            },
+        }
+    )
+    assert payload.agent_invocation_override is not None
+    assert payload.agent_invocation_override.extra_args == ["--full-auto"]
+    assert payload.auto_continuation_policy_override is not None
+    assert payload.auto_continuation_policy_override.enabled is False

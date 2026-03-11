@@ -25,6 +25,20 @@ EVIDENCE_KINDS = {"command", "file", "log", "decompiler"}
 FLAG_VERIFICATION_METHODS = {"platform_submit", "local_check", "regex_only", "none"}
 MANAGED_MCP_CONFIG_BEGIN = "# BEGIN DISORDER MANAGED MCP SERVERS"
 MANAGED_MCP_CONFIG_END = "# END DISORDER MANAGED MCP SERVERS"
+AGENT_INVOCATION_ENV_ALLOWLIST = {
+    "codex": {
+        "CODEX_MODEL",
+        "CODEX_BASE_URL",
+        "OPENAI_BASE_URL",
+        "OPENAI_ORG_ID",
+        "OPENAI_PROJECT_ID",
+    },
+    "claude_code": {
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+    },
+    "mock": set(),
+}
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -591,28 +605,60 @@ def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
     return process
 
 
+def _load_agent_invocation(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = spec.get("agent_invocation")
+    if not isinstance(payload, dict):
+        return {"extra_args": [], "env": {}}
+
+    extra_args = payload.get("extra_args")
+    env_payload = payload.get("env")
+    return {
+        "model": payload.get("model"),
+        "profile": payload.get("profile"),
+        "extra_args": [str(item) for item in extra_args if str(item).strip()] if isinstance(extra_args, list) else [],
+        "env": {str(key): str(value) for key, value in env_payload.items()} if isinstance(env_payload, dict) else {},
+    }
+
+
+def _sanitized_agent_invocation_for_logs(backend: str, invocation: dict[str, Any]) -> dict[str, Any]:
+    allowed_env = AGENT_INVOCATION_ENV_ALLOWLIST.get(backend, set())
+    sanitized_env = {key: value for key, value in invocation.get("env", {}).items() if key in allowed_env}
+    return {
+        "model": invocation.get("model"),
+        "profile": invocation.get("profile"),
+        "extra_args": invocation.get("extra_args", []),
+        "env": sanitized_env,
+    }
+
+
 def _resolve_backend_command(
+    spec: dict[str, Any],
     backend: str,
     prompt_file: Path,
-) -> tuple[list[str], str | None, str]:
+) -> tuple[list[str], str | None, str, dict[str, str]]:
     reasoning_effort = "medium"
-    if SPEC_PATH.exists():
-        try:
-            spec_payload = _read_json(SPEC_PATH)
-            raw_effort = spec_payload.get("reasoning_effort")
-            if not isinstance(raw_effort, str):
-                budgets = spec_payload.get("budgets")
-                if isinstance(budgets, dict):
-                    raw_effort = budgets.get("reasoning_effort")
-            if isinstance(raw_effort, str) and raw_effort.lower() in {
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-            }:
-                reasoning_effort = raw_effort.lower()
-        except Exception:
-            reasoning_effort = "medium"
+    raw_effort = spec.get("reasoning_effort")
+    if not isinstance(raw_effort, str):
+        budgets = spec.get("budgets")
+        if isinstance(budgets, dict):
+            raw_effort = budgets.get("reasoning_effort")
+    if isinstance(raw_effort, str) and raw_effort.lower() in {
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    }:
+        reasoning_effort = raw_effort.lower()
+
+    invocation = _load_agent_invocation(spec)
+    invocation_env = {
+        key: value
+        for key, value in invocation.get("env", {}).items()
+        if key in AGENT_INVOCATION_ENV_ALLOWLIST.get(backend, set())
+    }
+    model_override = str(invocation.get("model") or "").strip()
+    profile_override = str(invocation.get("profile") or "").strip()
+    extra_args = list(invocation.get("extra_args", []))
 
     if backend == "codex":
         command_template = os.getenv("CODEX_CLI_CMD")
@@ -623,7 +669,7 @@ def _resolve_backend_command(
                 chal_dir=str(CHAL_DIR),
                 reasoning_effort=reasoning_effort,
             )
-            return shlex.split(formatted), None, "custom-codex-command"
+            return shlex.split(formatted), None, "custom-codex-command", invocation_env
         command = [
             "codex",
             "exec",
@@ -637,16 +683,29 @@ def _resolve_backend_command(
             "-c",
             f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         ]
+        if model_override:
+            invocation_env.setdefault("CODEX_MODEL", model_override)
+        if profile_override:
+            command.extend(["--profile", profile_override])
+        if extra_args:
+            command.extend(extra_args)
         command.append("-")
-        return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command"
+        return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command", invocation_env
 
     command_template = os.getenv("CLAUDE_CODE_CLI_CMD")
     if not command_template:
-        return [], None, ""
+        return [], None, "", invocation_env
     formatted = command_template.format(
         prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR)
     )
-    return shlex.split(formatted), None, "custom-claude-command"
+    command = shlex.split(formatted)
+    if profile_override:
+        command.extend(["--profile", profile_override])
+    if model_override:
+        invocation_env.setdefault("ANTHROPIC_MODEL", model_override)
+    if extra_args:
+        command.extend(extra_args)
+    return command, None, "custom-claude-command", invocation_env
 
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
@@ -676,7 +735,14 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     prompt_file = RUN_DIR / "agent_prompt_filled.txt"
     prompt_file.write_text(prompt, encoding="utf-8")
 
-    command, stdin_input, command_source = _resolve_backend_command(
+    invocation = _load_agent_invocation(spec)
+    print(
+        f"[agent-runner] effective agent_invocation={json.dumps(_sanitized_agent_invocation_for_logs(backend, invocation), sort_keys=True)}",
+        flush=True,
+    )
+
+    command, stdin_input, command_source, invocation_env = _resolve_backend_command(
+        spec=spec,
         backend=backend,
         prompt_file=prompt_file,
     )
@@ -704,9 +770,12 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         flush=True,
     )
     try:
+        process_env = os.environ.copy()
+        process_env.update(invocation_env)
         process = subprocess.Popen(
             command,
             cwd=RUN_DIR,
+            env=process_env,
             stdin=subprocess.PIPE if stdin_input is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
