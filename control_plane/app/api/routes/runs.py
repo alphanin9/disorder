@@ -367,16 +367,6 @@ def terminate_run_route(run_id: UUID, db: Session = Depends(get_db)) -> RunStatu
         db.refresh(run)
         db.refresh(result_row)
 
-        auto_child = evaluate_and_queue_auto_continuation(
-            db=db,
-            run=run,
-            result=result_row,
-            settings=settings,
-            blob_store=blob_store,
-        )
-        if auto_child is not None:
-            get_orchestrator().launch_async(str(auto_child.id))
-
     result = db.get(RunResult, run_id)
     result_schema = RunResultRead.model_validate(result, from_attributes=True) if result else None
     return RunStatusResponse(run=RunRead.model_validate(run, from_attributes=True), result=result_schema)

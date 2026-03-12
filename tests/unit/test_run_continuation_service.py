@@ -435,6 +435,58 @@ def test_create_continuation_run_merges_agent_invocation_and_policy_override(tmp
     }
 
 
+def test_create_continuation_run_preserves_parent_extra_args_when_override_omits_them(tmp_path) -> None:
+    challenge = ChallengeManifest(
+        id=uuid4(),
+        ctf_id=uuid4(),
+        platform="manual",
+        platform_challenge_id="chal-1",
+        name="Warmup",
+        category="misc",
+        points=100,
+        description_md="desc",
+        description_raw=None,
+        artifacts=[],
+        remote_endpoints=[],
+        local_deploy_hints={},
+        flag_regex=None,
+    )
+    parent_run = _make_parent_run(challenge.id)
+    session = _FakeSession(challenge=challenge, parent_run=parent_run, parent_result=None)
+    settings = SimpleNamespace(
+        enable_run_continuation=True,
+        max_continuation_message_chars=500,
+        max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
+        runs_dir=tmp_path,
+    )
+
+    child_run = create_continuation_run(
+        session,
+        parent_run_id=parent_run.id,
+        request=RunContinueRequest.model_validate(
+            {
+                "message": "switch model only",
+                "agent_invocation_override": {
+                    "model": "gpt-5.4",
+                },
+            }
+        ),
+        settings=settings,
+        blob_store=_FakeBlobStore(result_payload={"status": "blocked"}),
+    )
+
+    assert child_run.agent_invocation == {
+        "model": "gpt-5.4",
+        "extra_args": ["--json"],
+        "env": {
+            "OPENAI_BASE_URL": "https://api.example",
+        },
+    }
+
+
 def test_create_continuation_run_copies_parent_deliverables_from_local_storage(tmp_path) -> None:
     challenge = ChallengeManifest(
         id=uuid4(),
@@ -580,3 +632,74 @@ def test_create_continuation_run_falls_back_to_blob_store_for_parent_deliverable
     assert copied.read_text(encoding="utf-8") == "print('blob')\n"
     manifest = json.loads((context_dir / "deliverables_manifest.json").read_text(encoding="utf-8"))
     assert manifest["items"][0]["source"] == "blob"
+
+
+def test_create_continuation_run_falls_back_to_blob_store_when_local_parent_result_is_invalid(tmp_path) -> None:
+    challenge = ChallengeManifest(
+        id=uuid4(),
+        ctf_id=uuid4(),
+        platform="manual",
+        platform_challenge_id="chal-1",
+        name="Warmup",
+        category="misc",
+        points=100,
+        description_md="desc",
+        description_raw=None,
+        artifacts=[],
+        remote_endpoints=[],
+        local_deploy_hints={},
+        flag_regex=None,
+    )
+    parent_run = _make_parent_run(challenge.id)
+    parent_result = RunResult(
+        run_id=parent_run.id,
+        status="deliverable_produced",
+        result_json_object_key="runs/parent/result.json",
+        logs_object_key="runs/parent/logs.txt",
+        started_at=parent_run.started_at,
+        finished_at=datetime.now(timezone.utc),
+    )
+    parent_run_dir = tmp_path / str(parent_run.id) / "run"
+    parent_run_dir.mkdir(parents=True)
+    (parent_run_dir / "README.md").write_text("# Parent\n\nFindings", encoding="utf-8")
+    (parent_run_dir / "result.json").write_text("{not valid json", encoding="utf-8")
+
+    blob_payload = _valid_result_payload(
+        challenge.id,
+        deliverables=[
+            {
+                "path": "/workspace/run/artifacts/from_blob.py",
+                "type": "solve_script",
+                "how_to_run": "python /workspace/run/artifacts/from_blob.py",
+            },
+        ],
+    )
+    session = _FakeSession(challenge=challenge, parent_run=parent_run, parent_result=parent_result)
+    settings = SimpleNamespace(
+        enable_run_continuation=True,
+        max_continuation_message_chars=500,
+        max_continuation_depth=3,
+        max_continuation_deliverables=16,
+        max_continuation_deliverable_bytes=1024 * 1024,
+        max_continuation_total_bytes=8 * 1024 * 1024,
+        runs_dir=tmp_path,
+    )
+    blob_store = _FakeBlobStore(
+        result_payload=blob_payload,
+        objects={f"runs/{parent_run.id}/deliverables/artifacts/from_blob.py": b"print('blob result')\n"},
+    )
+
+    child_run = create_continuation_run(
+        session,
+        parent_run_id=parent_run.id,
+        request=RunContinueRequest(message="retry"),
+        settings=settings,
+        blob_store=blob_store,
+    )
+
+    context_dir = tmp_path / str(child_run.id) / "continuation"
+    parent_result_payload = json.loads((context_dir / "parent_result.json").read_text(encoding="utf-8"))
+    assert parent_result_payload["challenge_name"] == "Warmup"
+    copied = context_dir / "deliverables" / "artifacts" / "from_blob.py"
+    assert copied.exists()
+    assert copied.read_text(encoding="utf-8") == "print('blob result')\n"

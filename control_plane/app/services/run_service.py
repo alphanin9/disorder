@@ -78,11 +78,12 @@ def _merge_agent_invocation(parent: dict | None, override: AgentInvocationConfig
         return merged
 
     override_payload = _normalize_agent_invocation(override)
+    override_fields = set(override.model_fields_set)
     if "model" in override_payload:
         merged["model"] = override_payload["model"]
     if "profile" in override_payload:
         merged["profile"] = override_payload["profile"]
-    if "extra_args" in override_payload:
+    if "extra_args" in override_fields:
         merged["extra_args"] = list(override_payload["extra_args"])
     if "env" in override_payload:
         merged["env"] = {**merged.get("env", {}), **override_payload["env"]}
@@ -171,7 +172,7 @@ def _read_parent_result_payload(parent_run: Run, parent_result: RunResult | None
         try:
             return json.loads(local_result.read_text(encoding="utf-8"))
         except Exception:
-            return _parent_result_fallback(parent_run)
+            pass
 
     if parent_result is not None:
         try:
