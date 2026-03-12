@@ -34,6 +34,7 @@ Guidance for agents working in this repository.
 - Python: 3.11+, type hints, Pydantic v2 models, SQLAlchemy 2 style.
 - Frontend: TypeScript + React Query; generated API types live in `frontend/src/api/`.
 - Keep changes scoped/minimal; avoid broad refactors unless requested.
+- Treat local state as valuable during development. Do not run destructive Docker Compose cleanup such as `docker compose down -v`, delete named volumes, or otherwise wipe Postgres/MinIO state unless the user explicitly asks for that cleanup.
 - Update docs when changing API behavior, run spec fields, or sandbox tooling.
 - Add tests for behavioral changes in:
   - `tests/unit/` for control-plane/sandbox logic

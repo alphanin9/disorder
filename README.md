@@ -49,6 +49,11 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Control plane stores run directories under `./runs/` by default.
 - In Docker mode, set `DOCKER_BIND_RUNS_DIR` if `${PWD}/runs` does not resolve correctly on your host.
 - Local deploy (`docker compose` inside challenge artifacts) requires Docker CLI availability in control-plane runtime.
+- Sandbox resource limits default to CI-safe values (`DEFAULT_CPU_LIMIT=1.0`, `DEFAULT_MEM_LIMIT=1g`, `DEFAULT_PIDS_LIMIT=256`).
+- To raise them locally only, add overrides to your untracked `.env`, for example:
+  - `DEFAULT_CPU_LIMIT=16`
+  - `DEFAULT_MEM_LIMIT=10g`
+  - `DEFAULT_PIDS_LIMIT=100000`
 - For Codex backend runs, provide auth using either:
   - `OPENAI_API_KEY` (or `CODEX_API_KEY`) in control plane environment, or
   - upload tagged auth files from the web UI (`CTFs` page) or API (`/auth/codex/*`).
@@ -70,6 +75,22 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - `DISCORD_WEBHOOK_URL`
   - `DISCORD_NOTIFY_ON_FLAG=true|false`
   - `DISCORD_NOTIFY_INCLUDE_FLAG=true|false`
+
+## Backups
+- Create a logical Postgres backup with:
+  - `python scripts/backup_postgres.py`
+- Backups are written to `./backups/postgres/` by default and kept outside Docker volumes.
+- The script keeps the newest 7 dumps by default. Change retention with:
+  - `python scripts/backup_postgres.py --keep 14`
+- Restore the newest dump into a disposable database with:
+  - `python scripts/restore_postgres.py --latest --database ctf_harness_restore --recreate`
+- Restore a specific dump into the main database only when you intend to replace it:
+  - `python scripts/restore_postgres.py backups/postgres/<file>.dump --database ctf_harness --recreate`
+- Create a MinIO bucket snapshot with:
+  - `python scripts/backup_minio.py`
+- Restore the newest MinIO snapshot into a disposable bucket with:
+  - `python scripts/restore_minio.py --latest --bucket ctf-harness-restore-smoke`
+- The MinIO scripts default to `http://localhost:9000`, bucket `ctf-harness`, and write snapshots under `./backups/minio/`.
 
 ## Tests
 - Unit tests: `python -m pytest -q tests/unit`
