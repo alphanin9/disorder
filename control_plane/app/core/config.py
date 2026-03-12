@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     sandbox_build_target: str | None = Field(default="full")
     docker_socket: str = Field(default="unix://var/run/docker.sock")
 
-    default_cpu_limit: float = Field(default=1.0)
-    default_mem_limit: str = Field(default="1g")
-    default_pids_limit: int = Field(default=256)
+    default_cpu_limit: float = Field(default=16.0)
+    default_mem_limit: str = Field(default="10g")
+    default_pids_limit: int = Field(default=100000)
     enable_run_continuation: bool = Field(default=True)
     max_continuation_message_chars: int = Field(default=4000)
     max_continuation_depth: int = Field(default=5)
