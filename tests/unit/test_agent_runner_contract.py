@@ -37,6 +37,7 @@ def test_normalize_result_payload_maps_non_contract_shape() -> None:
     assert normalized["challenge_id"] == "abc-123"
     assert normalized["challenge_name"] == "Example"
     assert normalized["status"] == "blocked"
+    assert normalized["failure_reason_code"] == "none"
     assert normalized["flag_verification"]["method"] == "none"
     assert normalized["evidence"][0]["ref"] == "README.md"
 
@@ -102,17 +103,75 @@ def test_normalize_result_payload_preserves_math_deliverables_and_evidence() -> 
     assert normalized["evidence"][1]["ref"] == "matrix.txt"
 
 
+def test_normalize_result_payload_strips_workspace_run_prefix_from_deliverables() -> None:
+    module = _load_agent_runner_module()
+    spec = {"challenge_id": "abc-123", "challenge_name": "Example"}
+    raw = {
+        "status": "deliverable_produced",
+        "deliverables": [
+            {
+                "path": "/workspace/run/solve.py",
+                "type": "solve_script",
+                "how_to_run": "python /workspace/run/solve.py",
+            }
+        ],
+    }
+
+    normalized = module._normalize_result_payload(spec, raw)
+    assert normalized["deliverables"][0]["path"] == "solve.py"
+
+
+def test_blocked_result_includes_failure_reason_code() -> None:
+    module = _load_agent_runner_module()
+    payload = module._blocked_result({"challenge_id": "abc", "challenge_name": "Example"}, "quota", failure_reason_code="provider_quota_or_auth")
+    assert payload["failure_reason_code"] == "provider_quota_or_auth"
+
+
 def test_codex_command_defaults_without_inline_mcp_overrides(tmp_path) -> None:
     module = _load_agent_runner_module()
     prompt_file = tmp_path / "prompt.txt"
     prompt_file.write_text("test", encoding="utf-8")
 
-    command, stdin_input, source = module._resolve_backend_command("codex", prompt_file)
+    command, stdin_input, source, invocation_env = module._resolve_backend_command(
+        {"backend": "codex"},
+        "codex",
+        prompt_file,
+    )
     assert source == "default-codex-command"
     assert stdin_input == "test"
+    assert invocation_env == {}
     joined = " ".join(command)
     assert "--json" in command
     assert 'model_reasoning_effort="medium"' in joined
+
+
+def test_codex_command_applies_agent_invocation_model_and_extra_args(tmp_path) -> None:
+    module = _load_agent_runner_module()
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("test", encoding="utf-8")
+
+    command, stdin_input, source, invocation_env = module._resolve_backend_command(
+        {
+            "backend": "codex",
+            "agent_invocation": {
+                "model": "gpt-5.4",
+                "profile": "ctf",
+                "extra_args": ["--search", "full"],
+                "env": {"CODEX_BASE_URL": "https://api.example", "OPENAI_API_KEY": "ignore-me"},
+            },
+        },
+        "codex",
+        prompt_file,
+    )
+    assert source == "default-codex-command"
+    assert stdin_input == "test"
+    assert "--model" in command
+    assert "gpt-5.4" in command
+    assert "--profile" in command
+    assert "--search" in command
+    assert invocation_env == {
+        "CODEX_BASE_URL": "https://api.example",
+    }
 
 
 def test_write_managed_codex_mcp_config_includes_flag_verify_by_default(
@@ -188,6 +247,29 @@ def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> 
     process, url = module._start_idalib_mcp_if_available()
     assert process is None
     assert url is None
+
+
+def test_render_continuation_context_mentions_deliverable_bundle_paths() -> None:
+    module = _load_agent_runner_module()
+    rendered = module._render_continuation_context(
+        {
+            "continuation": {
+                "is_continuation": True,
+                "parent_run_id": "run-1",
+                "type": "strategy_change",
+                "depth": 2,
+                "input": "keep going",
+                "mount_path": "/workspace/continuation",
+                "parent_result_path": "/workspace/continuation/parent_result.json",
+                "parent_readme_path": "/workspace/continuation/parent_readme.md",
+                "request_path": "/workspace/continuation/continuation_request.json",
+                "deliverables_manifest_path": "/workspace/continuation/deliverables_manifest.json",
+                "deliverables_mount_path": "/workspace/continuation/deliverables",
+            }
+        }
+    )
+    assert "/workspace/continuation/deliverables_manifest.json" in rendered
+    assert "/workspace/continuation/deliverables" in rendered
 
 
 def test_accept_ida_eula_disabled_by_env(monkeypatch) -> None:

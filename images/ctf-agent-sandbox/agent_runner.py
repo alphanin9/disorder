@@ -25,6 +25,19 @@ EVIDENCE_KINDS = {"command", "file", "log", "decompiler"}
 FLAG_VERIFICATION_METHODS = {"platform_submit", "local_check", "regex_only", "none"}
 MANAGED_MCP_CONFIG_BEGIN = "# BEGIN DISORDER MANAGED MCP SERVERS"
 MANAGED_MCP_CONFIG_END = "# END DISORDER MANAGED MCP SERVERS"
+AGENT_INVOCATION_ENV_ALLOWLIST = {
+    "codex": {
+        "CODEX_BASE_URL",
+        "OPENAI_BASE_URL",
+        "OPENAI_ORG_ID",
+        "OPENAI_PROJECT_ID",
+    },
+    "claude_code": {
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+    },
+    "mock": set(),
+}
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -97,7 +110,12 @@ def _seed_writable_codex_home() -> None:
         )
 
 
-def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
+def _blocked_result(
+    spec: dict[str, Any],
+    message: str,
+    *,
+    failure_reason_code: str = "none",
+) -> dict[str, Any]:
     return {
         "challenge_id": spec.get("challenge_id", ""),
         "challenge_name": spec.get("challenge_name", ""),
@@ -108,6 +126,8 @@ def _blocked_result(spec: dict[str, Any], message: str) -> dict[str, Any]:
             "verified": False,
             "details": message,
         },
+        "failure_reason_code": failure_reason_code,
+        "failure_reason_detail": message,
         "deliverables": [],
         "repro_steps": [],
         "key_findings": [],
@@ -136,6 +156,11 @@ def _render_continuation_context(spec: dict[str, Any]) -> str:
     depth = continuation.get("depth")
     message = str(continuation.get("input") or "").strip()
     mount_path = str(continuation.get("mount_path") or "").strip()
+    parent_result_path = str(continuation.get("parent_result_path") or "").strip()
+    parent_readme_path = str(continuation.get("parent_readme_path") or "").strip()
+    request_path = str(continuation.get("request_path") or "").strip()
+    deliverables_mount_path = str(continuation.get("deliverables_mount_path") or "").strip()
+    deliverables_manifest_path = str(continuation.get("deliverables_manifest_path") or "").strip()
     lines = [
         f"- Parent run id: {parent_run_id}",
         f"- Continuation type: {continuation_type}",
@@ -147,9 +172,11 @@ def _render_continuation_context(spec: dict[str, Any]) -> str:
         lines.extend(
             [
                 f"- Parent context mount: {mount_path}",
-                "  - parent_result.json",
-                "  - parent_readme.md",
-                "  - continuation_request.json",
+                f"- Parent result path: {parent_result_path or (mount_path + '/parent_result.json')}",
+                f"- Parent README path: {parent_readme_path or (mount_path + '/parent_readme.md')}",
+                f"- Continuation request path: {request_path or (mount_path + '/continuation_request.json')}",
+                f"- Deliverables manifest path: {deliverables_manifest_path or (mount_path + '/deliverables_manifest.json')}",
+                f"- Deliverables directory: {deliverables_mount_path or (mount_path + '/deliverables')}",
             ]
         )
     lines.append("- Verify parent context before relying on it.")
@@ -591,28 +618,60 @@ def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
     return process
 
 
+def _load_agent_invocation(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = spec.get("agent_invocation")
+    if not isinstance(payload, dict):
+        return {"extra_args": [], "env": {}}
+
+    extra_args = payload.get("extra_args")
+    env_payload = payload.get("env")
+    return {
+        "model": payload.get("model"),
+        "profile": payload.get("profile"),
+        "extra_args": [str(item) for item in extra_args if str(item).strip()] if isinstance(extra_args, list) else [],
+        "env": {str(key): str(value) for key, value in env_payload.items()} if isinstance(env_payload, dict) else {},
+    }
+
+
+def _sanitized_agent_invocation_for_logs(backend: str, invocation: dict[str, Any]) -> dict[str, Any]:
+    allowed_env = AGENT_INVOCATION_ENV_ALLOWLIST.get(backend, set())
+    sanitized_env = {key: value for key, value in invocation.get("env", {}).items() if key in allowed_env}
+    return {
+        "model": invocation.get("model"),
+        "profile": invocation.get("profile"),
+        "extra_args": invocation.get("extra_args", []),
+        "env": sanitized_env,
+    }
+
+
 def _resolve_backend_command(
+    spec: dict[str, Any],
     backend: str,
     prompt_file: Path,
-) -> tuple[list[str], str | None, str]:
+) -> tuple[list[str], str | None, str, dict[str, str]]:
     reasoning_effort = "medium"
-    if SPEC_PATH.exists():
-        try:
-            spec_payload = _read_json(SPEC_PATH)
-            raw_effort = spec_payload.get("reasoning_effort")
-            if not isinstance(raw_effort, str):
-                budgets = spec_payload.get("budgets")
-                if isinstance(budgets, dict):
-                    raw_effort = budgets.get("reasoning_effort")
-            if isinstance(raw_effort, str) and raw_effort.lower() in {
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-            }:
-                reasoning_effort = raw_effort.lower()
-        except Exception:
-            reasoning_effort = "medium"
+    raw_effort = spec.get("reasoning_effort")
+    if not isinstance(raw_effort, str):
+        budgets = spec.get("budgets")
+        if isinstance(budgets, dict):
+            raw_effort = budgets.get("reasoning_effort")
+    if isinstance(raw_effort, str) and raw_effort.lower() in {
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    }:
+        reasoning_effort = raw_effort.lower()
+
+    invocation = _load_agent_invocation(spec)
+    invocation_env = {
+        key: value
+        for key, value in invocation.get("env", {}).items()
+        if key in AGENT_INVOCATION_ENV_ALLOWLIST.get(backend, set())
+    }
+    model_override = str(invocation.get("model") or "").strip()
+    profile_override = str(invocation.get("profile") or "").strip()
+    extra_args = list(invocation.get("extra_args", []))
 
     if backend == "codex":
         command_template = os.getenv("CODEX_CLI_CMD")
@@ -623,7 +682,7 @@ def _resolve_backend_command(
                 chal_dir=str(CHAL_DIR),
                 reasoning_effort=reasoning_effort,
             )
-            return shlex.split(formatted), None, "custom-codex-command"
+            return shlex.split(formatted), None, "custom-codex-command", invocation_env
         command = [
             "codex",
             "exec",
@@ -637,16 +696,29 @@ def _resolve_backend_command(
             "-c",
             f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         ]
+        if model_override:
+            command.extend(["--model", model_override])
+        if profile_override:
+            command.extend(["--profile", profile_override])
+        if extra_args:
+            command.extend(extra_args)
         command.append("-")
-        return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command"
+        return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command", invocation_env
 
     command_template = os.getenv("CLAUDE_CODE_CLI_CMD")
     if not command_template:
-        return [], None, ""
+        return [], None, "", invocation_env
     formatted = command_template.format(
         prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR)
     )
-    return shlex.split(formatted), None, "custom-claude-command"
+    command = shlex.split(formatted)
+    if profile_override:
+        command.extend(["--profile", profile_override])
+    if model_override:
+        invocation_env.setdefault("ANTHROPIC_MODEL", model_override)
+    if extra_args:
+        command.extend(extra_args)
+    return command, None, "custom-claude-command", invocation_env
 
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
@@ -661,7 +733,7 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                 "or upload tagged Codex auth files via the control-plane auth API/UI."
             )
             _write_readme("# Blocked\n\n" + message + "\n")
-            _write_result(_blocked_result(spec, message))
+            _write_result(_blocked_result(spec, message, failure_reason_code="provider_quota_or_auth"))
             return 2
         idalib_process, ida_mcp_url = _start_idalib_mcp_if_available()
         _write_managed_codex_mcp_config(ida_url=ida_mcp_url)
@@ -676,7 +748,14 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     prompt_file = RUN_DIR / "agent_prompt_filled.txt"
     prompt_file.write_text(prompt, encoding="utf-8")
 
-    command, stdin_input, command_source = _resolve_backend_command(
+    invocation = _load_agent_invocation(spec)
+    print(
+        f"[agent-runner] effective agent_invocation={json.dumps(_sanitized_agent_invocation_for_logs(backend, invocation), sort_keys=True)}",
+        flush=True,
+    )
+
+    command, stdin_input, command_source, invocation_env = _resolve_backend_command(
+        spec=spec,
         backend=backend,
         prompt_file=prompt_file,
     )
@@ -687,14 +766,14 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             "to a runnable command template using {prompt_file} and {run_dir}."
         )
         _write_readme("# Blocked\n\n" + error + "\n")
-        _write_result(_blocked_result(spec, error))
+        _write_result(_blocked_result(spec, error, failure_reason_code="backend_binary_missing"))
         _stop_background_process(idalib_process, "idalib-mcp")
         _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     if shutil.which(command[0]) is None:
         _write_readme("# Blocked\n\nConfigured backend binary not found.\n")
-        _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}"))
+        _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}", failure_reason_code="backend_binary_missing"))
         _stop_background_process(idalib_process, "idalib-mcp")
         _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
@@ -704,9 +783,12 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         flush=True,
     )
     try:
+        process_env = os.environ.copy()
+        process_env.update(invocation_env)
         process = subprocess.Popen(
             command,
             cwd=RUN_DIR,
+            env=process_env,
             stdin=subprocess.PIPE if stdin_input is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -771,7 +853,13 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             if not (RUN_DIR / "README.md").exists():
                 _write_readme("# Blocked\n\n" + message + "\n")
             if not (RUN_DIR / "result.json").exists():
-                _write_result(_blocked_result(spec, message))
+                _write_result(
+                    _blocked_result(
+                        spec,
+                        message,
+                        failure_reason_code=_backend_failure_reason_code(backend, stdout_text, stderr_text),
+                    )
+                )
 
         return returncode
     finally:
@@ -803,15 +891,42 @@ def _backend_failure_message(
     return f"Backend command failed with exit code {returncode}"
 
 
+def _backend_failure_reason_code(backend: str, stdout: str, stderr: str) -> str:
+    output = f"{stdout}\n{stderr}".lower()
+    if backend == "codex":
+        if any(
+            token in output
+            for token in (
+                "401",
+                "unauthorized",
+                "invalid api key",
+                "authentication failed",
+                "429",
+                "rate limit",
+            )
+        ):
+            return "provider_quota_or_auth"
+    return "sandbox_exit_nonzero"
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if str(item).strip()]
 
 
+def _normalize_run_relative_path(value: Any) -> str:
+    rendered = str(value or "").strip().replace("\\", "/")
+    for prefix in ("/workspace/run/", "workspace/run/"):
+        if rendered.startswith(prefix):
+            rendered = rendered[len(prefix) :]
+            break
+    return rendered
+
+
 def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str, Any]:
     if not isinstance(raw_result, dict):
-        return _blocked_result(spec, "result.json did not contain an object")
+        return _blocked_result(spec, "result.json did not contain an object", failure_reason_code="result_validation_failed")
 
     challenge_id = str(raw_result.get("challenge_id") or spec.get("challenge_id") or "")
     challenge_name = str(
@@ -882,7 +997,7 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
                 continue
             if not isinstance(entry, dict):
                 continue
-            path = str(entry.get("path") or "").strip()
+            path = _normalize_run_relative_path(entry.get("path"))
             if not path:
                 continue
             dtype = str(entry.get("type") or "other").strip().lower()
@@ -923,6 +1038,8 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
         "status": status,
         "stop_criterion_met": stop_criterion_met,
         "flag": flag,
+        "failure_reason_code": str(raw_result.get("failure_reason_code") or "none").strip().lower() or "none",
+        "failure_reason_detail": str(raw_result.get("failure_reason_detail") or details).strip(),
         "flag_verification": {
             "method": method,
             "verified": verified,
@@ -946,13 +1063,13 @@ def _ensure_contract(spec: dict[str, Any]) -> int:
         _write_readme("# Blocked\n\nMissing README.md from backend run.\n")
 
     if not result_path.exists():
-        _write_result(_blocked_result(spec, "Missing result.json from backend run"))
+        _write_result(_blocked_result(spec, "Missing result.json from backend run", failure_reason_code="sandbox_output_contract_missing"))
         return 3
 
     try:
         parsed = json.loads(result_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        _write_result(_blocked_result(spec, f"Invalid result.json: {exc}"))
+        _write_result(_blocked_result(spec, f"Invalid result.json: {exc}", failure_reason_code="result_validation_failed"))
         return 3
 
     normalized = _normalize_result_payload(spec, parsed)
@@ -1009,7 +1126,7 @@ def main() -> int:
 
     message = f"Unsupported backend: {backend}"
     _write_readme("# Blocked\n\n" + message + "\n")
-    _write_result(_blocked_result(spec, message))
+    _write_result(_blocked_result(spec, message, failure_reason_code="backend_binary_missing"))
     return 2
 
 

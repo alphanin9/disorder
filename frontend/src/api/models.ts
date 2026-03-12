@@ -2,6 +2,27 @@ import type { components } from "@/api/types";
 
 export type ChallengeManifest = components["schemas"]["ChallengeManifestRead"];
 export type ChallengeListResponse = components["schemas"]["ChallengeListResponse"];
+export type AgentInvocationPayload = {
+  model?: string | null;
+  profile?: string | null;
+  extra_args?: string[];
+  env?: Record<string, string>;
+};
+export type AutoContinuationPolicyPayload = {
+  enabled?: boolean;
+  max_depth?: number;
+  target?: {
+    final_status?: "flag_found" | "deliverable_produced" | "blocked" | "timeout";
+  };
+  when?: {
+    statuses?: Array<"flag_found" | "deliverable_produced" | "blocked" | "timeout">;
+    require_contract_match?: boolean;
+  };
+  on_blocked_reasons?: string[];
+  continuation_type?: "hint" | "deliverable_fix" | "strategy_change" | "other";
+  message_template?: string;
+  inherit_agent_invocation?: boolean;
+};
 type BaseRunCreateRequest = components["schemas"]["RunCreateRequest"];
 export type RunCreateRequest = BaseRunCreateRequest & {
   reasoning_effort?: "low" | "medium" | "high" | "xhigh";
@@ -9,6 +30,8 @@ export type RunCreateRequest = BaseRunCreateRequest & {
     max_minutes: number;
     max_commands?: number | null;
   } | null;
+  agent_invocation?: AgentInvocationPayload | null;
+  auto_continuation_policy?: AutoContinuationPolicyPayload | null;
 };
 export type RunContinuationType = "hint" | "deliverable_fix" | "strategy_change" | "other";
 type BaseRunRead = components["schemas"]["RunRead"];
@@ -17,6 +40,9 @@ export type RunRead = BaseRunRead & {
   continuation_depth?: number;
   continuation_input?: string | null;
   continuation_type?: RunContinuationType | null;
+  continuation_origin?: "operator" | "auto";
+  agent_invocation?: AgentInvocationPayload;
+  auto_continuation_policy?: AutoContinuationPolicyPayload | null;
 };
 export type RunListResponse = { items: RunRead[] };
 type BaseRunResultRead = components["schemas"]["RunResultRead"];
@@ -33,6 +59,8 @@ export type RunContinueRequest = {
   time_limit_seconds?: number | null;
   stop_criteria_override?: Record<string, unknown> | null;
   reuse_parent_artifacts?: boolean;
+  agent_invocation_override?: AgentInvocationPayload | null;
+  auto_continuation_policy_override?: AutoContinuationPolicyPayload | null;
 };
 export type CTF = components["schemas"]["CTFRead"];
 export type CTFListResponse = components["schemas"]["CTFListResponse"];
@@ -105,6 +133,8 @@ export type RunResultPayload = {
   key_findings: string[];
   evidence: Array<{ kind: string; ref: string; summary: string }>;
   notes: string;
+  failure_reason_code?: string;
+  failure_reason_detail?: string;
 };
 
 export type RunFlagSubmissionAttempt = {

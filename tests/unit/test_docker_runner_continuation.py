@@ -65,6 +65,7 @@ def test_build_spec_payload_includes_continuation_metadata() -> None:
         id=uuid4(),
         challenge_id=uuid4(),
         backend="codex",
+        agent_invocation={"model": "gpt-5.4", "extra_args": ["--search"], "env": {"CODEX_BASE_URL": "https://api.example"}},
         budgets={"reasoning_effort": "high", "max_minutes": 45},
         stop_criteria={"primary": {"type": "FLAG_FOUND", "config": {"regex": "flag\\{.*?\\}"}}},
         allowed_endpoints=[],
@@ -87,3 +88,28 @@ def test_build_spec_payload_includes_continuation_metadata() -> None:
     assert spec["continuation"]["type"] == "hint"
     assert spec["continuation"]["depth"] == 2
     assert spec["continuation"]["mount_path"] == "/workspace/continuation"
+    assert spec["continuation"]["deliverables_mount_path"] == "/workspace/continuation/deliverables"
+    assert spec["continuation"]["deliverables_manifest_path"] == "/workspace/continuation/deliverables_manifest.json"
+    assert spec["agent_invocation"]["model"] == "gpt-5.4"
+
+
+def test_build_finalization_metadata_prefers_structured_failure_reason() -> None:
+    runner = DockerRunner.__new__(DockerRunner)
+
+    metadata = runner._build_finalization_metadata(
+        result_data={
+            "notes": "quota issue",
+            "failure_reason_code": "provider_quota_or_auth",
+            "failure_reason_detail": "Codex quota exceeded",
+        },
+        status_code=2,
+        timed_out=False,
+        contract_valid=True,
+        contract_failure_code="none",
+        contract_failure_detail="",
+        result_status_before_stop_eval="blocked",
+        result_status_after_stop_eval="blocked",
+    )
+
+    assert metadata["failure_reason_code"] == "provider_quota_or_auth"
+    assert metadata["failure_reason_detail"] == "Codex quota exceeded"

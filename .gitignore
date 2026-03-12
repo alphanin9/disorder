@@ -5,6 +5,7 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 /runs/
+/backups/
 *.log
 
 *.egg-info/

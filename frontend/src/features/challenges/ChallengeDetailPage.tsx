@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
 import { createRun, getChallenge, getCtfs, getRuns, updateChallenge, uploadChallengeArtifact } from "@/api/endpoints";
-import type { ChallengeArtifact, RunCreateRequest } from "@/api/models";
+import type { AutoContinuationPolicyPayload, ChallengeArtifact, RunCreateRequest } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,10 +14,18 @@ import { inputClasses } from "@/components/ui/forms";
 import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 import { formatDateTime } from "@/features/runs/utils";
 
+const AUTO_CONTINUATION_STATUSES = new Set(["blocked", "timeout", "flag_found", "deliverable_produced"] as const);
+
 const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
   reasoning_effort: z.enum(["low", "medium", "high", "xhigh"]),
   goal: z.enum(["flag", "deliverable"]),
+  model: z.string().optional(),
+  agent_invocation_json: z.string().optional(),
+  auto_continue_enabled: z.boolean().default(false),
+  auto_continue_max_depth: z.coerce.number().int().min(1).max(20).default(3),
+  auto_continue_statuses: z.string().default("blocked,timeout"),
+  auto_continue_reason_codes: z.string().default(""),
   local_deploy_enabled: z.boolean().default(false),
   max_minutes: z.coerce.number().int().min(1, "Must be at least 1 minute").max(24 * 60, "Must be <= 1440 minutes"),
   max_commands: z.preprocess(
@@ -46,6 +54,23 @@ type EditForm = z.infer<typeof editSchema>;
 function normalizeOptional(value: string | undefined): string | null {
   const trimmed = (value ?? "").trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseOptionalJsonObject(value: string | undefined, fieldName: string): Record<string, unknown> | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`${fieldName} must be valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${fieldName} must be a JSON object.`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function parseArtifact(input: unknown): ChallengeArtifact | null {
@@ -148,6 +173,12 @@ export function ChallengeDetailPage() {
       backend: "mock",
       reasoning_effort: "medium",
       goal: "flag",
+      model: "",
+      agent_invocation_json: "",
+      auto_continue_enabled: false,
+      auto_continue_max_depth: 3,
+      auto_continue_statuses: "blocked,timeout",
+      auto_continue_reason_codes: "",
       local_deploy_enabled: false,
       max_minutes: 30,
       max_commands: null,
@@ -183,6 +214,38 @@ export function ChallengeDetailPage() {
               },
             };
 
+      const parsedAgentInvocation = parseOptionalJsonObject(values.agent_invocation_json, "Agent invocation JSON");
+      const model = values.model?.trim();
+      const agentInvocation =
+        parsedAgentInvocation || model
+          ? {
+              ...(parsedAgentInvocation ?? {}),
+              ...(model ? { model } : {}),
+            }
+          : undefined;
+      const autoContinuationPolicy: AutoContinuationPolicyPayload | undefined =
+        values.auto_continue_enabled
+          ? {
+              enabled: true,
+              max_depth: values.auto_continue_max_depth,
+              target: {
+                final_status: values.goal === "flag" ? "flag_found" : "deliverable_produced",
+              },
+              when: {
+                statuses: values.auto_continue_statuses
+                  .split(",")
+                  .map((value) => value.trim())
+                  .filter((value): value is "blocked" | "timeout" | "flag_found" | "deliverable_produced" =>
+                    AUTO_CONTINUATION_STATUSES.has(value as "blocked" | "timeout" | "flag_found" | "deliverable_produced"),
+                  ),
+              },
+              on_blocked_reasons: values.auto_continue_reason_codes
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean),
+            }
+          : undefined;
+
       const payload: RunCreateRequest = {
         challenge_id: challengeId ?? "",
         backend: values.backend,
@@ -193,6 +256,8 @@ export function ChallengeDetailPage() {
         },
         stop_criteria: stopCriteria,
         local_deploy_enabled: values.local_deploy_enabled,
+        agent_invocation: agentInvocation,
+        auto_continuation_policy: autoContinuationPolicy,
       };
       return createRun(payload);
     },
@@ -402,6 +467,74 @@ export function ChallengeDetailPage() {
               <option value="flag">Keep going until flag is found</option>
               <option value="deliverable">Stop once a working artifact is produced</option>
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="model">
+              Model Override
+            </label>
+            <input id="model" className={inputClasses} placeholder="gpt-5.4" {...runForm.register("model")} />
+            <p className="mt-1 text-xs text-ink-muted">Optional per-run backend model selection.</p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor="agent_invocation_json">
+              Agent Invocation JSON
+            </label>
+            <textarea
+              id="agent_invocation_json"
+              className={`${inputClasses} min-h-24 font-mono text-xs`}
+              placeholder='{"extra_args":["--search","full"],"env":{"CODEX_BASE_URL":"https://api.example"}}'
+              {...runForm.register("agent_invocation_json")}
+            />
+            <p className="mt-1 text-xs text-ink-muted">Advanced backend-specific overrides. Model field above wins if both are set.</p>
+          </div>
+
+          <div className="rounded-md border border-line bg-surface-muted p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" {...runForm.register("auto_continue_enabled")} />
+              Auto-continue until the selected goal is reached
+            </label>
+            {runForm.watch("auto_continue_enabled") ? (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium" htmlFor="auto_continue_max_depth">
+                    Max Continuation Depth
+                  </label>
+                  <input
+                    id="auto_continue_max_depth"
+                    type="number"
+                    min={1}
+                    max={20}
+                    className={inputClasses}
+                    {...runForm.register("auto_continue_max_depth")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium" htmlFor="auto_continue_statuses">
+                    Retry Statuses
+                  </label>
+                  <input
+                    id="auto_continue_statuses"
+                    className={inputClasses}
+                    placeholder="blocked,timeout"
+                    {...runForm.register("auto_continue_statuses")}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium" htmlFor="auto_continue_reason_codes">
+                    Failure Reason Codes
+                  </label>
+                  <input
+                    id="auto_continue_reason_codes"
+                    className={inputClasses}
+                    placeholder="provider_quota_or_auth,sandbox_exit_nonzero"
+                    {...runForm.register("auto_continue_reason_codes")}
+                  />
+                  <p className="mt-1 text-xs text-ink-muted">Optional. Leave blank to retry any selected status.</p>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div>

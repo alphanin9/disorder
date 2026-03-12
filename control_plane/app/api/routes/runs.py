@@ -29,6 +29,7 @@ from control_plane.app.schemas.run import (
     RunStatusResponse,
 )
 from control_plane.app.services.delete_service import delete_run
+from control_plane.app.services.auto_continuation_service import evaluate_and_queue_auto_continuation
 from control_plane.app.services.flag_submission_service import build_flag_verification, list_run_flag_submission_attempts
 from control_plane.app.services.run_service import (
     RunContinuationError,
@@ -66,6 +67,8 @@ def _write_terminated_result_if_missing(run_id: UUID, challenge: ChallengeManife
             "status": "blocked",
             "stop_criterion_met": "none",
             "flag_verification": {"method": "none", "verified": False, "details": reason},
+            "failure_reason_code": "operator_terminated",
+            "failure_reason_detail": reason,
             "deliverables": [],
             "repro_steps": [],
             "key_findings": [],
@@ -332,6 +335,15 @@ def terminate_run_route(run_id: UUID, db: Session = Depends(get_db)) -> RunStatu
                 status="blocked",
                 result_json_object_key=result_key,
                 logs_object_key=logs_key,
+                finalization_metadata={
+                    "contract_valid": True,
+                    "sandbox_exit_code": None,
+                    "timed_out": False,
+                    "result_status_before_stop_eval": "blocked",
+                    "result_status_after_stop_eval": "blocked",
+                    "failure_reason_code": "operator_terminated",
+                    "failure_reason_detail": reason,
+                },
                 started_at=run.started_at,
                 finished_at=run.finished_at,
             )
@@ -340,10 +352,20 @@ def terminate_run_route(run_id: UUID, db: Session = Depends(get_db)) -> RunStatu
             result_row.status = "blocked"
             result_row.result_json_object_key = result_key
             result_row.logs_object_key = logs_key
+            result_row.finalization_metadata = {
+                "contract_valid": True,
+                "sandbox_exit_code": None,
+                "timed_out": False,
+                "result_status_before_stop_eval": "blocked",
+                "result_status_after_stop_eval": "blocked",
+                "failure_reason_code": "operator_terminated",
+                "failure_reason_detail": reason,
+            }
             result_row.finished_at = run.finished_at
 
         db.commit()
         db.refresh(run)
+        db.refresh(result_row)
 
     result = db.get(RunResult, run_id)
     result_schema = RunResultRead.model_validate(result, from_attributes=True) if result else None

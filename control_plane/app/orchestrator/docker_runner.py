@@ -24,6 +24,7 @@ from control_plane.app.db.models import CTFIntegrationConfig, ChallengeManifest,
 from control_plane.app.db.session import SessionLocal
 from control_plane.app.schemas.result_contract import SandboxResult
 from control_plane.app.services.auth_service import CodexAuthMaterial, get_codex_auth_material_for_tag
+from control_plane.app.services.auto_continuation_service import evaluate_and_queue_auto_continuation
 from control_plane.app.services.flag_submission_service import build_flag_verification
 from control_plane.app.stop_criteria.engine import evaluate_stop_criteria
 from control_plane.app.store import get_blob_store
@@ -171,6 +172,7 @@ class DockerRunner:
                     challenge=challenge,
                     reason="Run timed out before completion",
                     status="blocked",
+                    failure_reason_code="timeout",
                 )
                 final_status = "timeout"
                 run.error_message = "Run timed out"
@@ -182,18 +184,25 @@ class DockerRunner:
             result_path = run_mount_dir / "result.json"
             readme_path = run_mount_dir / "README.md"
 
-            if not result_path.exists() or not readme_path.exists():
+            contract_missing_output = not result_path.exists() or not readme_path.exists()
+            if contract_missing_output:
                 self._write_blocked_result(
                     run_mount_dir=run_mount_dir,
                     challenge=challenge,
                     reason="Sandbox output contract missing result.json or README.md",
                     status="blocked",
+                    failure_reason_code="sandbox_output_contract_missing",
                 )
 
-            result_data, validated = self._load_validated_result(
+            result_data, validated, contract_valid, contract_failure_code, contract_failure_detail = self._load_validated_result(
                 run_mount_dir=run_mount_dir,
                 challenge=challenge,
             )
+            if contract_missing_output:
+                contract_valid = False
+                contract_failure_code = "sandbox_output_contract_missing"
+                contract_failure_detail = "Sandbox output contract missing result.json or README.md"
+            result_status_before_stop_eval = str(result_data.get("status") or "blocked")
 
             if final_status != "timeout":
                 stop_eval = evaluate_stop_criteria(run.stop_criteria, result_data, run_mount_dir)
@@ -204,6 +213,16 @@ class DockerRunner:
                 result_path.write_text(json.dumps(result_data, indent=2), encoding="utf-8")
                 validated = SandboxResult.model_validate(result_data)
                 final_status = stop_eval.final_status
+            finalization_metadata = self._build_finalization_metadata(
+                result_data=result_data,
+                status_code=status_code,
+                timed_out=timed_out,
+                contract_valid=contract_valid,
+                contract_failure_code=contract_failure_code,
+                contract_failure_detail=contract_failure_detail,
+                result_status_before_stop_eval=result_status_before_stop_eval,
+                result_status_after_stop_eval=final_status,
+            )
 
             result_key, logs_key = run_result_object_keys(str(run.id))
             self.blob_store.put_file(result_key, result_path)
@@ -230,6 +249,7 @@ class DockerRunner:
                     status=final_status,
                     result_json_object_key=result_key,
                     logs_object_key=logs_key,
+                    finalization_metadata=finalization_metadata,
                     started_at=run.started_at,
                     finished_at=now,
                 )
@@ -238,6 +258,7 @@ class DockerRunner:
                 result_row.status = final_status
                 result_row.result_json_object_key = result_key
                 result_row.logs_object_key = logs_key
+                result_row.finalization_metadata = finalization_metadata
                 result_row.finished_at = now
 
             run.status = final_status
@@ -245,6 +266,18 @@ class DockerRunner:
             if final_status in {"flag_found", "deliverable_produced"}:
                 run.error_message = None
             db.commit()
+            db.refresh(run)
+            db.refresh(result_row)
+
+            auto_child = evaluate_and_queue_auto_continuation(
+                db=db,
+                run=run,
+                result=result_row,
+                settings=self.settings,
+                blob_store=self.blob_store,
+            )
+            if auto_child is not None:
+                self.launch_async(str(auto_child.id))
 
         except Exception as exc:
             if run is not None:
@@ -632,6 +665,7 @@ class DockerRunner:
             "reasoning_effort": reasoning_effort,
             "budgets": run.budgets,
             "stop_criteria": run.stop_criteria,
+            "agent_invocation": run.agent_invocation or {},
             "allowed_endpoints": run.allowed_endpoints,
             "paths": run.paths,
             "local_deploy": run.local_deploy,
@@ -642,6 +676,21 @@ class DockerRunner:
                 "input": run.continuation_input,
                 "type": run.continuation_type,
                 "mount_path": (run.paths or {}).get("continuation_mount"),
+                "parent_result_path": "/workspace/continuation/parent_result.json"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "parent_readme_path": "/workspace/continuation/parent_readme.md"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "request_path": "/workspace/continuation/continuation_request.json"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "deliverables_mount_path": "/workspace/continuation/deliverables"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
+                "deliverables_manifest_path": "/workspace/continuation/deliverables_manifest.json"
+                if (run.paths or {}).get("continuation_mount")
+                else None,
             },
         }
 
@@ -651,13 +700,23 @@ class DockerRunner:
                 handle.write(chunk)
                 handle.flush()
 
-    def _write_blocked_result(self, run_mount_dir: Path, challenge: ChallengeManifest, reason: str, status: str) -> None:
+    def _write_blocked_result(
+        self,
+        run_mount_dir: Path,
+        challenge: ChallengeManifest,
+        reason: str,
+        status: str,
+        *,
+        failure_reason_code: str = "none",
+    ) -> None:
         fallback = {
             "challenge_id": str(challenge.id),
             "challenge_name": challenge.name,
             "status": status,
             "stop_criterion_met": "none",
             "flag_verification": {"method": "none", "verified": False, "details": reason},
+            "failure_reason_code": failure_reason_code,
+            "failure_reason_detail": reason,
             "deliverables": [],
             "repro_steps": [],
             "key_findings": [],
@@ -667,33 +726,88 @@ class DockerRunner:
         (run_mount_dir / "README.md").write_text("# Run Output\n\nNo successful output produced.\n", encoding="utf-8")
         (run_mount_dir / "result.json").write_text(json.dumps(fallback, indent=2), encoding="utf-8")
 
-    def _load_validated_result(self, run_mount_dir: Path, challenge: ChallengeManifest) -> tuple[dict[str, Any], SandboxResult]:
+    def _load_validated_result(
+        self,
+        run_mount_dir: Path,
+        challenge: ChallengeManifest,
+    ) -> tuple[dict[str, Any], SandboxResult, bool, str, str]:
         result_path = run_mount_dir / "result.json"
+        contract_valid = True
+        failure_reason_code = "none"
+        failure_reason_detail = ""
 
         try:
             result_data = json.loads(result_path.read_text(encoding="utf-8"))
         except Exception as exc:
+            contract_valid = False
+            failure_reason_code = "result_validation_failed"
+            failure_reason_detail = f"Invalid result.json content: {exc}"
             self._write_blocked_result(
                 run_mount_dir=run_mount_dir,
                 challenge=challenge,
-                reason=f"Invalid result.json content: {exc}",
+                reason=failure_reason_detail,
                 status="blocked",
+                failure_reason_code=failure_reason_code,
             )
             result_data = json.loads(result_path.read_text(encoding="utf-8"))
 
         try:
             validated = SandboxResult.model_validate(result_data)
-            return result_data, validated
+            return result_data, validated, contract_valid, failure_reason_code, failure_reason_detail
         except Exception as exc:
+            contract_valid = False
+            failure_reason_code = "result_validation_failed"
+            failure_reason_detail = f"Invalid result.json schema: {exc}"
             self._write_blocked_result(
                 run_mount_dir=run_mount_dir,
                 challenge=challenge,
-                reason=f"Invalid result.json schema: {exc}",
+                reason=failure_reason_detail,
                 status="blocked",
+                failure_reason_code=failure_reason_code,
             )
             result_data = json.loads(result_path.read_text(encoding="utf-8"))
             validated = SandboxResult.model_validate(result_data)
-            return result_data, validated
+            return result_data, validated, contract_valid, failure_reason_code, failure_reason_detail
+
+    def _build_finalization_metadata(
+        self,
+        *,
+        result_data: dict[str, Any],
+        status_code: int,
+        timed_out: bool,
+        contract_valid: bool,
+        contract_failure_code: str,
+        contract_failure_detail: str,
+        result_status_before_stop_eval: str,
+        result_status_after_stop_eval: str,
+    ) -> dict[str, Any]:
+        reason_code = "none"
+        reason_detail = ""
+        if timed_out:
+            reason_code = "timeout"
+            reason_detail = "Run timed out before completion"
+        elif contract_failure_code != "none":
+            reason_code = contract_failure_code
+            reason_detail = contract_failure_detail
+        elif isinstance(result_data.get("failure_reason_code"), str) and result_data.get("failure_reason_code"):
+            reason_code = str(result_data.get("failure_reason_code"))
+            reason_detail = str(result_data.get("failure_reason_detail") or result_data.get("notes") or "")
+        elif status_code != 0:
+            reason_code = "sandbox_exit_nonzero"
+            reason_detail = f"Sandbox exited with status code {status_code}"
+        elif result_status_after_stop_eval == "blocked":
+            reason_code = "stop_criteria_not_met"
+            reason_detail = str(result_data.get("notes") or "")
+
+        return {
+            "contract_valid": contract_valid,
+            "sandbox_exit_code": status_code,
+            "timed_out": timed_out,
+            "result_status_before_stop_eval": result_status_before_stop_eval,
+            "result_status_after_stop_eval": result_status_after_stop_eval,
+            "failure_reason_code": reason_code,
+            "failure_reason_detail": reason_detail,
+        }
 
     def _start_local_deploy(self, run_id: str, challenge_dir: Path) -> LocalDeployContext:
         compose_file = challenge_dir / "docker-compose.yml"
