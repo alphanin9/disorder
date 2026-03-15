@@ -87,6 +87,7 @@ RUN dpkg --add-architecture i386 && \
 
 RUN npm install -g @openai/codex
 
+ENV GOBIN=/usr/local/bin
 RUN go install github.com/ffuf/ffuf/v2@latest && \
     go install github.com/OJ/gobuster/v3@latest
 
