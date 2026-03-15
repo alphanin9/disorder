@@ -5,7 +5,7 @@ General workflow:
 - Start with triage on `/workspace/chal`: `ls -la`, `file`, `strings`, `sha256sum`.
 - Keep all generated outputs in `/workspace/run`.
 - You may install missing tools during a run when needed for solving.
-- Prefer user-space installs and portable binaries (non-root): `python -m pip install --user ...`, download/extract into `/workspace/run/tools`, then prepend PATH.
+- Prefer user-space installs and portable binaries (non-root): download/extract into `/workspace/run/tools`, then prepend PATH. This does not apply to Python.
 - Record installed tool versions and how they were installed in `README.md`.
 - Do not scan arbitrary targets; prioritize configured challenge/local endpoints.
 
@@ -16,20 +16,19 @@ Binary / pwn:
 - Prefer reproducible solve scripts with `pwntools`.
 - In `pwntools`, set `context.binary`, `context.log_level`, and deterministic timeouts.
 - For exploit binaries (example: VM challenges), prefer a smaller binary size.
-- For cross-compiled binaries (example: Windows), obtain a Zig bundle and utilize it.
+- For cross-compiled binaries (example: Windows), a Zig bundle is provided.
 - When designing ROP chains, think more.
 - When designing heap exploitation plans, think more.
 - For QEMU work you have the x86 and x86-64 system emulation QEMU binaries (package `qemu-system-x86`) installed. No other architectures are provided due to concerns about container image size. Keep in mind KVM cannot be used.
 - You have `pahole` for dumping structure information from DWARF debug info for when precise struct info is needed.
 
 Debugging:
-- Your environment has `libdebug`, `pwndbg` and `gdb` provided.
-- Use `libdebug` for Python script-driven debugging instead of directly utilizing `pwndbg`/`gdb`. You have a skill for libdebug's API reference.
-- For heap inspection purposes, use `pwndbg`.
+- Your environment has `libdebug` and `gdb` provided.
+- Use `libdebug` for Python script-driven debugging instead of directly utilizing `gdb`. You have a skill for libdebug's API reference.
+- `gdb` has Pwndbg's suite of additional commands installed (example usecase: determining current heap state).
 - The hierarchy of debugging tool usage is:
   - `libdebug` (this should be the default)
-  - `pwndbg` (if `libdebug` is not functioning correctly or you need heap inspection/other useful features `libdebug` does not provide)
-  - `gdb` (if `pwndbg` encounters problems)
+  - `gdb` (if `libdebug` encounters problems)
 
 Reverse engineering:
 - Use `objdump -d`, `readelf -a`, `nm`, `strings`, and scripting for automation.
@@ -57,5 +56,5 @@ Crypto / forensics:
 - To find AES keys in files/memory dumps when needed, use `aeskeyfind`.
 
 Web / protocol:
-- Use `curl`, `wget`, `nc`, `socat` against allowlisted endpoints only.
+- Use `curl`, `wget`, `nc`, `ncat`, `socat` against allowlisted endpoints only.
 - Save request/response evidence snippets in `/workspace/run`.

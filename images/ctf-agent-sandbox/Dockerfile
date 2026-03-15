@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm AS sandbox-base
+FROM condaforge/miniforge3:26.1.0-0 AS sandbox-base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -11,12 +11,15 @@ RUN apt-get update && \
     ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 1000 -s /bin/bash ctf && \
+FROM sandbox-base AS ci
+
+# NOTE: Done here to avoid messing with `conda activate` for full image too much
+RUN groupmod -g 1001 ubuntu && usermod -u 1001 -g 1001 ubuntu && \
+    useradd -m -u 1000 -s /bin/bash ctf && \
     mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
     chown -R ctf:ctf /workspace /home/ctf
 
-WORKDIR /workspace
-
+# NOTE: Done here to avoid costly rebuild of full image every time we need to change sth in tooling guide/prompt
 COPY agent_runner.py /usr/local/bin/agent_runner.py
 COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
 COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
@@ -25,17 +28,19 @@ COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
 
 RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/flag_submit_mcp.py
 
-
-FROM sandbox-base AS ci
-
 USER ctf
-
-ENTRYPOINT ["python", "/usr/local/bin/agent_runner.py"]
-
+WORKDIR /workspace
+ENTRYPOINT ["python3", "/usr/local/bin/agent_runner.py"]
 
 FROM sandbox-base AS full
 
-RUN apt-get update && \
+# Install SageMath and create CTF Python profile based on it
+RUN mamba create -y -n ctf sage && \
+    echo "conda activate ctf" >> ~/.bashrc && \
+    echo "conda activate ctf" >> /etc/skel/.bashrc
+
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     aeskeyfind \
     binutils \
@@ -43,39 +48,70 @@ RUN apt-get update && \
     build-essential \
     cpio \
     curl \
+    dotnet-sdk-8.0 \
+    dotnet-sdk-10.0 \
+    fasm \
     file \
+    fonts-wine \
     gdb \
     gdb-multiarch \
     git \
+    golang \
     jq \
     ltrace \
+    libwine \
+    libwine:i386 \
+    ncat \
     netcat-openbsd \
     nodejs \
     npm \
+    openjdk-21-jdk \
     p7zip-full \
     pahole \
     patchelf \
     qemu-system-x86 \
     ripgrep \
-    sagemath \
     socat \
+    ssh \
     strace \
+    tshark \
     unzip \
+    vim \
     vim-common \
     wget \
+    wine \
+    wine32 \
+    wine64 \
+    xxd \
     zip
 
-# Setup Dotnet SDK for ilspycmd
-RUN wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && \
-    dpkg -i packages-microsoft-prod.deb && \
-    rm packages-microsoft-prod.deb && \
-    apt-get update && \
-    apt-get install -y \
-    dotnet-sdk-8.0 \
-    dotnet-sdk-10.0
+RUN npm install -g @openai/codex
+
+ENV GOBIN=/usr/local/bin
+RUN go install github.com/ffuf/ffuf/v2@latest && \
+    go install github.com/OJ/gobuster/v3@latest
+
+# Download, untar and copy Zig toolchain to /opt/zig, then add to PATH
+RUN curl -fSSL https://ziglang.org/download/index.json | jq -r 'to_entries | map(select(.value["x86_64-linux"]?)) | max_by(.value.date) | .value["x86_64-linux"].tarball' | \
+    xargs wget -O /tmp/zig-latest.tar.xz && \
+    mkdir -p /opt/zig && tar -C /opt/zig -xf /tmp/zig-latest.tar.xz --strip-components=1 && \
+    rm /tmp/zig-latest.tar.xz
+
+ENV PATH="/opt/zig:$PATH"
+
+# Download, unzip and copy Ghidra to /opt/ghidra
+RUN wget -qO - https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest \
+    | jq '.assets[0].browser_download_url' | xargs wget -O /tmp/ghidra-latest.zip && \
+    unzip /tmp/ghidra-latest.zip -d /tmp/ghidra-latest && \
+    mv $(find "/tmp/ghidra-latest" -maxdepth 1 -type d -name "ghidra_*_PUBLIC" | head -n1) /opt/ghidra && \
+    rm -rf /tmp/ghidra-latest && rm /tmp/ghidra-latest.zip
+
+ENV GHIDRA_INSTALL_DIR=/opt/ghidra
 
 RUN dotnet tool install ilspycmd
 
+# Hacky hack for Pip packages to install in our conda env
+SHELL ["conda", "run", "-n", "ctf", "/bin/bash", "-c"]
 RUN pip install --no-cache-dir \
     https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip \
     idapro \
@@ -87,55 +123,38 @@ RUN pip install --no-cache-dir \
     pyghidra-mcp \
     pyghidra-mcp-cli \
     ropper \
+    scapy \
     sympy \
     uv \
-    z3-solver && \
-    npm install -g @openai/codex
+    z3-solver
 
-RUN wget --https-only --secure-protocol=TLSv1_2 -qO- 'https://install.pwndbg.re' \
-    | sh -s -- -t pwndbg-gdb
+# NOTE: Same reasoning as wíth CI
+COPY agent_runner.py /usr/local/bin/agent_runner.py
+COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
+COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
+COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
+COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
 
-# Setup Wine
-RUN dpkg --add-architecture i386 && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    fonts-wine \
-    libwine \
-    libwine:i386 \
-    wine \
-    wine32 \
-    wine64
+# NOTE: Done here to avoid messing with `conda activate` too much, same reason as with CI...
+RUN groupmod -g 1001 ubuntu && usermod -u 1001 -g 1001 ubuntu && \
+    useradd -m -u 1000 -s /bin/bash ctf && \
+    mkdir -p /workspace/chal /workspace/run /home/ctf/.codex && \
+    chown -R ctf:ctf /workspace /home/ctf
 
-# Setup Ghidra installation in sandbox
-# Install GPG
-RUN apt-get install -y --no-install-recommends gpg
-
-# Setup JDK
-RUN wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
-    | gpg --dearmor \
-    | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
-
-RUN echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
-    | tee /etc/apt/sources.list.d/adoptium.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    temurin-21-jdk
-
-# Download, unzip and copy Ghidra to /opt/ghidra
-RUN wget -qO - https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest \
-    | jq '.assets[0].browser_download_url' | xargs wget -O /tmp/ghidra-latest.zip && \
-    unzip /tmp/ghidra-latest.zip -d /tmp/ghidra-latest && \
-    mv $(find "/tmp/ghidra-latest" -maxdepth 1 -type d -name "ghidra_*_PUBLIC" | head -n1) /opt/ghidra && \
-    rm -rf /tmp/ghidra-latest && rm /tmp/ghidra-latest.zip
-
-ENV GHIDRA_INSTALL_DIR=/opt/ghidra
-
-# Cleanup apt lists
-RUN rm -rf /var/lib/apt/lists/*
+RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/flag_submit_mcp.py
 
 USER ctf
+# Setup pwndbg
+RUN PY_VER=$(gdb -nx --batch -iex 'py import sysconfig; print(sysconfig.get_config_var("VERSION"))') && \
+    uv tool install --python=$PY_VER  git+https://github.com/pwndbg/pwndbg && \
+    echo "source $(uv tool dir)/pwndbg/share/pwndbg/gdbinit.py" >> ~/.gdbinit
 
-# Note: apparently needed
+# Hacky hack of hacks for `pip install` in user to not spam warnings 24/7
+ENV PATH="/home/ctf/.local/bin:$PATH"
+
+# Necessary for ilspycmd to run
 RUN dotnet tool restore
 
-ENTRYPOINT ["python", "/usr/local/bin/agent_runner.py"]
+WORKDIR /workspace
+# Evil hack - but I'm not sure if it works without this? Also this craps into stdout because of `conda run` not having disablable logger
+ENTRYPOINT ["conda", "run", "-n", "ctf", "--no-capture-output", "python3", "/usr/local/bin/agent_runner.py"]
