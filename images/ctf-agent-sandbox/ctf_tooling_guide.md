@@ -8,6 +8,7 @@ General workflow:
 - Prefer user-space installs and portable binaries (non-root): download/extract into `/workspace/run/tools`, then prepend PATH. This does not apply to Python.
 - Record installed tool versions and how they were installed in `README.md`.
 - Do not scan arbitrary targets; prioritize configured challenge/local endpoints.
+- Depending on harness configuration, you may have CUDA support for compute that would benefit from a GPU. Use `nvidia-smi` to discover present CUDA devices.
 
 Binary / pwn:
 - Use `pwn checksec <binary>` first.

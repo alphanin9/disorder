@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     discord_webhook_url: str | None = Field(default=None)
     discord_notify_on_flag: bool = Field(default=True)
     discord_notify_include_flag: bool = Field(default=True)
+    sandbox_gpu_passthrough: bool = Field(default=False)
 
 
 @lru_cache

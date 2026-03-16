@@ -65,6 +65,7 @@ RUN dpkg --add-architecture i386 && \
     netcat-openbsd \
     nodejs \
     npm \
+    nvidia-cuda-toolkit \
     openjdk-21-jdk \
     p7zip-full \
     pahole \

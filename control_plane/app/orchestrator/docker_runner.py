@@ -16,15 +16,26 @@ from uuid import UUID
 import docker
 import httpx
 from docker.errors import DockerException, ImageNotFound, NotFound
+from docker.types import DeviceRequest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from control_plane.app.core.config import get_settings
-from control_plane.app.db.models import CTFIntegrationConfig, ChallengeManifest, Run, RunResult
+from control_plane.app.db.models import (
+    ChallengeManifest,
+    CTFIntegrationConfig,
+    Run,
+    RunResult,
+)
 from control_plane.app.db.session import SessionLocal
 from control_plane.app.schemas.result_contract import SandboxResult
-from control_plane.app.services.auth_service import CodexAuthMaterial, get_codex_auth_material_for_tag
-from control_plane.app.services.auto_continuation_service import evaluate_and_queue_auto_continuation
+from control_plane.app.services.auth_service import (
+    CodexAuthMaterial,
+    get_codex_auth_material_for_tag,
+)
+from control_plane.app.services.auto_continuation_service import (
+    evaluate_and_queue_auto_continuation,
+)
 from control_plane.app.services.flag_submission_service import build_flag_verification
 from control_plane.app.stop_criteria.engine import evaluate_stop_criteria
 from control_plane.app.store import get_blob_store
@@ -44,7 +55,9 @@ class DockerRunner:
         self.settings = get_settings()
         self.blob_store = get_blob_store()
         self.client = docker.DockerClient(base_url=self.settings.docker_socket)
-        self.docker_bind_runs_dir = self._resolve_host_mount_path(self.settings.docker_bind_runs_dir)
+        self.docker_bind_runs_dir = self._resolve_host_mount_path(
+            self.settings.docker_bind_runs_dir
+        )
 
     def launch_async(self, run_id: str) -> None:
         thread = threading.Thread(target=self.execute_run, args=(run_id,), daemon=True)
@@ -97,16 +110,25 @@ class DockerRunner:
             self._hydrate_challenge_artifacts(challenge=challenge, target_dir=chal_dir)
 
             if run.local_deploy.get("enabled") and any(
-                artifact.get("name") in {"docker-compose.yml", "compose.yml"} for artifact in challenge.artifacts
+                artifact.get("name") in {"docker-compose.yml", "compose.yml"}
+                for artifact in challenge.artifacts
             ):
-                local_ctx = self._start_local_deploy(run_id=str(run.id), challenge_dir=chal_dir)
+                local_ctx = self._start_local_deploy(
+                    run_id=str(run.id), challenge_dir=chal_dir
+                )
                 run.local_deploy = {
                     "enabled": True,
                     "network": local_ctx.network_name,
                     "endpoints": local_ctx.service_endpoints,
-                    "service_logs": [f"logs/services/{name}.log" for name in local_ctx.container_names],
+                    "service_logs": [
+                        f"logs/services/{name}.log"
+                        for name in local_ctx.container_names
+                    ],
                 }
-                run.allowed_endpoints = [*run.allowed_endpoints, *local_ctx.service_endpoints]
+                run.allowed_endpoints = [
+                    *run.allowed_endpoints,
+                    *local_ctx.service_endpoints,
+                ]
                 db.commit()
 
             spec = self._build_spec_payload(run=run, challenge=challenge)
@@ -118,10 +140,14 @@ class DockerRunner:
             host_run_dir = self.docker_bind_runs_dir / str(run.id)
             host_chal_dir = host_run_dir / "chal"
             host_run_mount = host_run_dir / "run"
-            auth_mount_volume = self._sandbox_auth_volumes(db=db, run_dir=run_dir, host_run_dir=host_run_dir)
+            auth_mount_volume = self._sandbox_auth_volumes(
+                db=db, run_dir=run_dir, host_run_dir=host_run_dir
+            )
             skills_mount_volume = self._sandbox_codex_skills_volumes()
             ida_mount_volume, ida_env = self._sandbox_ida_mount_and_env()
-            continuation_mount_volume = self._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
+            continuation_mount_volume = self._sandbox_continuation_volume(
+                run=run, host_run_dir=host_run_dir
+            )
 
             volumes = {
                 str(host_chal_dir): {"bind": "/workspace/chal", "mode": "ro"},
@@ -133,6 +159,11 @@ class DockerRunner:
             volumes.update(continuation_mount_volume)
             sandbox_env = self._sandbox_environment(db=db, challenge=challenge)
             sandbox_env.update(ida_env)
+
+            device_requests: list[DeviceRequest] | None = None
+
+            if self.settings.sandbox_gpu_passthrough:
+                device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
 
             container = self.client.containers.run(
                 self.settings.sandbox_image,
@@ -146,9 +177,12 @@ class DockerRunner:
                 volumes=volumes,
                 network=local_ctx.network_name if local_ctx else None,
                 environment=sandbox_env,
+                device_requests=device_requests,
             )
 
-            log_thread = threading.Thread(target=self._stream_logs, args=(container, log_path), daemon=True)
+            log_thread = threading.Thread(
+                target=self._stream_logs, args=(container, log_path), daemon=True
+            )
             log_thread.start()
 
             max_minutes = int(run.budgets.get("max_minutes", 30))
@@ -184,7 +218,9 @@ class DockerRunner:
             result_path = run_mount_dir / "result.json"
             readme_path = run_mount_dir / "README.md"
 
-            contract_missing_output = not result_path.exists() or not readme_path.exists()
+            contract_missing_output = (
+                not result_path.exists() or not readme_path.exists()
+            )
             if contract_missing_output:
                 self._write_blocked_result(
                     run_mount_dir=run_mount_dir,
@@ -194,23 +230,37 @@ class DockerRunner:
                     failure_reason_code="sandbox_output_contract_missing",
                 )
 
-            result_data, validated, contract_valid, contract_failure_code, contract_failure_detail = self._load_validated_result(
+            (
+                result_data,
+                validated,
+                contract_valid,
+                contract_failure_code,
+                contract_failure_detail,
+            ) = self._load_validated_result(
                 run_mount_dir=run_mount_dir,
                 challenge=challenge,
             )
             if contract_missing_output:
                 contract_valid = False
                 contract_failure_code = "sandbox_output_contract_missing"
-                contract_failure_detail = "Sandbox output contract missing result.json or README.md"
+                contract_failure_detail = (
+                    "Sandbox output contract missing result.json or README.md"
+                )
             result_status_before_stop_eval = str(result_data.get("status") or "blocked")
 
             if final_status != "timeout":
-                stop_eval = evaluate_stop_criteria(run.stop_criteria, result_data, run_mount_dir)
+                stop_eval = evaluate_stop_criteria(
+                    run.stop_criteria, result_data, run_mount_dir
+                )
                 result_data["stop_criterion_met"] = stop_eval.stop_criterion_met
                 result_data["status"] = stop_eval.final_status
                 if stop_eval.final_status == "flag_found":
-                    result_data = self._verify_flag_result(db=db, run=run, challenge=challenge, result_data=result_data)
-                result_path.write_text(json.dumps(result_data, indent=2), encoding="utf-8")
+                    result_data = self._verify_flag_result(
+                        db=db, run=run, challenge=challenge, result_data=result_data
+                    )
+                result_path.write_text(
+                    json.dumps(result_data, indent=2), encoding="utf-8"
+                )
                 validated = SandboxResult.model_validate(result_data)
                 final_status = stop_eval.final_status
             finalization_metadata = self._build_finalization_metadata(
@@ -236,10 +286,16 @@ class DockerRunner:
                 self.blob_store.put_file(deliverable_key, deliverable_src)
 
             if local_ctx is not None:
-                self._capture_service_logs(local_ctx=local_ctx, run_id=str(run.id), service_log_dir=service_log_dir)
+                self._capture_service_logs(
+                    local_ctx=local_ctx,
+                    run_id=str(run.id),
+                    service_log_dir=service_log_dir,
+                )
 
             if final_status == "flag_found":
-                self._notify_discord_flag(run=run, challenge=challenge, result_data=result_data)
+                self._notify_discord_flag(
+                    run=run, challenge=challenge, result_data=result_data
+                )
 
             result_row = db.get(RunResult, run.id)
             now = datetime.now(timezone.utc)
@@ -302,10 +358,14 @@ class DockerRunner:
         removed = 0
 
         target_label = f"ctf_harness.run_id={run_id}"
-        containers = self.client.containers.list(all=True, filters={"label": target_label})
+        containers = self.client.containers.list(
+            all=True, filters={"label": target_label}
+        )
         if not containers:
             fallback_name = f"ctf-sandbox-{run_id[:8]}"
-            containers = self.client.containers.list(all=True, filters={"name": fallback_name})
+            containers = self.client.containers.list(
+                all=True, filters={"name": fallback_name}
+            )
 
         for container in containers:
             try:
@@ -365,7 +425,9 @@ class DockerRunner:
                 self.client.images.build(path=str(candidate), **build_kwargs)
                 return
 
-        raise FileNotFoundError("Sandbox image not found and build context is unavailable")
+        raise FileNotFoundError(
+            "Sandbox image not found and build context is unavailable"
+        )
 
     def _resolve_host_mount_path(self, configured_path: Path) -> Path:
         target_raw = str(configured_path)
@@ -383,7 +445,9 @@ class DockerRunner:
         # allow users to pass `G:\...` style host paths and translate them
         # into a Linux daemon-visible path (`/run/desktop/mnt/host/g/...`).
         if os.name != "nt":
-            translated = self._translate_windows_host_path_for_daemon(target_raw=target_raw, mounts=mounts)
+            translated = self._translate_windows_host_path_for_daemon(
+                target_raw=target_raw, mounts=mounts
+            )
             if translated:
                 target = translated
                 print(
@@ -398,18 +462,25 @@ class DockerRunner:
                 destination = str(mount.get("Destination", ""))
                 destination_normalized = destination.rstrip("/")
                 target_normalized = target.rstrip("/")
-                if target_normalized == destination_normalized or target_normalized.startswith(f"{destination_normalized}/"):
+                if (
+                    target_normalized == destination_normalized
+                    or target_normalized.startswith(f"{destination_normalized}/")
+                ):
                     source = str(mount.get("Source", ""))
                     if not source:
                         continue
-                    suffix = target_normalized[len(destination_normalized) :].lstrip("/")
+                    suffix = target_normalized[len(destination_normalized) :].lstrip(
+                        "/"
+                    )
                     return Path(source) / suffix if suffix else Path(source)
         except Exception:
             pass
 
         return configured
 
-    def _translate_windows_host_path_for_daemon(self, target_raw: str, mounts: list[dict[str, Any]]) -> str | None:
+    def _translate_windows_host_path_for_daemon(
+        self, target_raw: str, mounts: list[dict[str, Any]]
+    ) -> str | None:
         windows_path = re.match(r"^(?P<drive>[A-Za-z]):[\\/](?P<rest>.*)$", target_raw)
         if not windows_path:
             return None
@@ -420,13 +491,18 @@ class DockerRunner:
         prefix: str | None = None
         for mount in mounts:
             source = str(mount.get("Source", "")).replace("\\", "/")
-            match = re.match(r"^(?P<prefix>/(?:run/desktop/mnt/host|host_mnt))/(?P<drive>[A-Za-z])(?:/|$)", source)
+            match = re.match(
+                r"^(?P<prefix>/(?:run/desktop/mnt/host|host_mnt))/(?P<drive>[A-Za-z])(?:/|$)",
+                source,
+            )
             if match and match.group("drive").lower() == drive:
                 prefix = match.group("prefix")
                 break
 
         if prefix is None:
-            prefix = os.getenv("DOCKER_DESKTOP_HOST_MOUNT_PREFIX", "/run/desktop/mnt/host").strip()
+            prefix = os.getenv(
+                "DOCKER_DESKTOP_HOST_MOUNT_PREFIX", "/run/desktop/mnt/host"
+            ).strip()
             if not prefix:
                 prefix = "/run/desktop/mnt/host"
 
@@ -455,7 +531,11 @@ class DockerRunner:
         challenge: ChallengeManifest | None = None,
     ) -> dict[str, str]:
         env = {"PYTHONUNBUFFERED": "1", "HOME": "/home/ctf"}
-        passthrough = [item.strip() for item in self.settings.sandbox_env_passthrough.split(",") if item.strip()]
+        passthrough = [
+            item.strip()
+            for item in self.settings.sandbox_env_passthrough.split(",")
+            if item.strip()
+        ]
         for name in passthrough:
             value = os.getenv(name)
             if value:
@@ -463,16 +543,25 @@ class DockerRunner:
 
         env.setdefault("CODEX_HOME", "/home/ctf/.codex")
         env.setdefault("CODEX_AUTH_SEED_DIR", "/workspace/run/.auth_seed/codex")
-        env.setdefault("CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills")
+        env.setdefault(
+            "CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills"
+        )
         control_plane_url = (self.settings.sandbox_control_plane_url or "").strip()
         if control_plane_url:
             env.setdefault("DISORDER_CONTROL_PLANE_URL", control_plane_url.rstrip("/"))
         else:
-            env.setdefault("DISORDER_CONTROL_PLANE_URL", f"http://host.docker.internal:{self.settings.app_port}")
-        flag_submit_mcp_enabled = bool(getattr(self.settings, "sandbox_flag_submit_mcp_enabled", False))
+            env.setdefault(
+                "DISORDER_CONTROL_PLANE_URL",
+                f"http://host.docker.internal:{self.settings.app_port}",
+            )
+        flag_submit_mcp_enabled = bool(
+            getattr(self.settings, "sandbox_flag_submit_mcp_enabled", False)
+        )
         if not flag_submit_mcp_enabled and db is not None and challenge is not None:
             try:
-                flag_submit_mcp_enabled = self._ctf_has_ctfd_integration(db, challenge.ctf_id)
+                flag_submit_mcp_enabled = self._ctf_has_ctfd_integration(
+                    db, challenge.ctf_id
+                )
             except Exception as exc:
                 print(
                     f"[orchestrator] unable to determine CTFd integration for challenge {challenge.id}; "
@@ -483,14 +572,22 @@ class DockerRunner:
             "CODEX_FLAG_SUBMIT_MCP_ENABLED",
             "1" if flag_submit_mcp_enabled else "0",
         )
+        env.setdefault(
+            "SANDBOX_GPU_PASSTHROUGH",
+            "1" if self.settings.sandbox_gpu_passthrough else "0",
+        )
         return env
 
-    def _sandbox_ida_mount_and_env(self) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
+    def _sandbox_ida_mount_and_env(
+        self,
+    ) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
         host_path = (self.settings.sandbox_ida_host_path or "").strip()
         if not host_path:
             return {}, {"SANDBOX_IDA_ENABLED": "0"}
 
-        mount_path = (self.settings.sandbox_ida_mount_path or "/opt/ida").strip() or "/opt/ida"
+        mount_path = (
+            self.settings.sandbox_ida_mount_path or "/opt/ida"
+        ).strip() or "/opt/ida"
         port = self.settings.sandbox_idalib_mcp_port
         if port <= 0:
             port = 8745
@@ -500,30 +597,47 @@ class DockerRunner:
             "SANDBOX_IDA_ENABLED": "1",
             "SANDBOX_IDA_INSTALL_PATH": mount_path,
             "SANDBOX_IDALIB_MCP_PORT": str(port),
-            "SANDBOX_IDA_ACCEPT_EULA": "1" if self.settings.sandbox_ida_accept_eula else "0",
+            "SANDBOX_IDA_ACCEPT_EULA": "1"
+            if self.settings.sandbox_ida_accept_eula
+            else "0",
             "SANDBOX_IDA_EULA_VERSIONS": self.settings.sandbox_ida_eula_versions,
             "IDADIR": mount_path,
             "IDA_PATH": mount_path,
             "IDA_DIR": mount_path,
         }
-        volume: dict[str, dict[str, str]] = {str(resolved): {"bind": mount_path, "mode": "ro"}}
+        volume: dict[str, dict[str, str]] = {
+            str(resolved): {"bind": mount_path, "mode": "ro"}
+        }
 
-        registry_host_path = (self.settings.sandbox_ida_registry_host_path or "").strip()
+        registry_host_path = (
+            self.settings.sandbox_ida_registry_host_path or ""
+        ).strip()
         if registry_host_path:
             registry_resolved = self._resolve_host_mount_path(Path(registry_host_path))
             volume[str(registry_resolved)] = {"bind": "/home/ctf/.idapro", "mode": "rw"}
 
         return volume, env
 
-    def _sandbox_auth_volumes(self, db: Session, run_dir: Path, host_run_dir: Path) -> dict[str, dict[str, str]]:
+    def _sandbox_auth_volumes(
+        self, db: Session, run_dir: Path, host_run_dir: Path
+    ) -> dict[str, dict[str, str]]:
         staged_dir = run_dir / ".auth" / "codex"
         staged_dir.mkdir(parents=True, exist_ok=True)
 
         requested_tag = self.settings.sandbox_codex_auth_tag
-        _, auth_material = get_codex_auth_material_for_tag(db, requested_tag=requested_tag)
-        staged_from_store_count = self._stage_codex_auth_material(staged_dir=staged_dir, files=auth_material)
+        _, auth_material = get_codex_auth_material_for_tag(
+            db, requested_tag=requested_tag
+        )
+        staged_from_store_count = self._stage_codex_auth_material(
+            staged_dir=staged_dir, files=auth_material
+        )
         if staged_from_store_count > 0:
-            return {str(host_run_dir / ".auth" / "codex"): {"bind": "/workspace/run/.auth_seed/codex", "mode": "ro"}}
+            return {
+                str(host_run_dir / ".auth" / "codex"): {
+                    "bind": "/workspace/run/.auth_seed/codex",
+                    "mode": "ro",
+                }
+            }
         return {}
 
     def _sandbox_codex_skills_volumes(self) -> dict[str, dict[str, str]]:
@@ -539,7 +653,9 @@ class DockerRunner:
             }
         }
 
-    def _sandbox_continuation_volume(self, run: Run, host_run_dir: Path) -> dict[str, dict[str, str]]:
+    def _sandbox_continuation_volume(
+        self, run: Run, host_run_dir: Path
+    ) -> dict[str, dict[str, str]]:
         mount_path = str((run.paths or {}).get("continuation_mount") or "").strip()
         if not mount_path:
             return {}
@@ -559,7 +675,9 @@ class DockerRunner:
         )
         return {str(host_path): {"bind": mount_path, "mode": "ro"}}
 
-    def _stage_codex_auth_material(self, staged_dir: Path, files: list[CodexAuthMaterial]) -> int:
+    def _stage_codex_auth_material(
+        self, staged_dir: Path, files: list[CodexAuthMaterial]
+    ) -> int:
         copied = 0
         for file_entry in files:
             safe_name = Path(file_entry.file_name.replace("\\", "/")).name
@@ -584,7 +702,13 @@ class DockerRunner:
             return challenge.ctf.default_flag_regex
         return None
 
-    def _verify_flag_result(self, db: Session, run: Run, challenge: ChallengeManifest, result_data: dict[str, Any]) -> dict[str, Any]:
+    def _verify_flag_result(
+        self,
+        db: Session,
+        run: Run,
+        challenge: ChallengeManifest,
+        result_data: dict[str, Any],
+    ) -> dict[str, Any]:
         flag = result_data.get("flag")
         if not isinstance(flag, str) or not flag.strip():
             result_data["flag_verification"] = {
@@ -604,12 +728,18 @@ class DockerRunner:
         )
         return result_data
 
-    def _notify_discord_flag(self, run: Run, challenge: ChallengeManifest, result_data: dict[str, Any]) -> None:
+    def _notify_discord_flag(
+        self, run: Run, challenge: ChallengeManifest, result_data: dict[str, Any]
+    ) -> None:
         webhook_url = self.settings.discord_webhook_url
         if not self.settings.discord_notify_on_flag or not webhook_url:
             return
 
-        verification = result_data.get("flag_verification") if isinstance(result_data.get("flag_verification"), dict) else {}
+        verification = (
+            result_data.get("flag_verification")
+            if isinstance(result_data.get("flag_verification"), dict)
+            else {}
+        )
         flag_value = str(result_data.get("flag") or "")
         verified = bool(verification.get("verified", False))
         method = str(verification.get("method", "none"))
@@ -617,16 +747,38 @@ class DockerRunner:
 
         color = 0x22C55E if verified else 0xF59E0B
         embed_fields = [
-            {"name": "Challenge", "value": challenge.name[:1024] or "-", "inline": True},
+            {
+                "name": "Challenge",
+                "value": challenge.name[:1024] or "-",
+                "inline": True,
+            },
             {"name": "Run ID", "value": str(run.id), "inline": True},
             {"name": "Backend", "value": run.backend[:1024] or "-", "inline": True},
-            {"name": "Verification Method", "value": method[:1024] or "none", "inline": True},
-            {"name": "Verified", "value": "true" if verified else "false", "inline": True},
-            {"name": "Details", "value": (details or "No details provided.")[:1024], "inline": False},
+            {
+                "name": "Verification Method",
+                "value": method[:1024] or "none",
+                "inline": True,
+            },
+            {
+                "name": "Verified",
+                "value": "true" if verified else "false",
+                "inline": True,
+            },
+            {
+                "name": "Details",
+                "value": (details or "No details provided.")[:1024],
+                "inline": False,
+            },
         ]
 
         if self.settings.discord_notify_include_flag and flag_value:
-            embed_fields.append({"name": "Flag Candidate", "value": f"`{flag_value[:1000]}`", "inline": False})
+            embed_fields.append(
+                {
+                    "name": "Flag Candidate",
+                    "value": f"`{flag_value[:1000]}`",
+                    "inline": False,
+                }
+            )
 
         payload = {
             "embeds": [
@@ -642,15 +794,21 @@ class DockerRunner:
             response = httpx.post(webhook_url, json=payload, timeout=10.0)
             response.raise_for_status()
         except Exception as exc:
-            print(f"[orchestrator] discord webhook notification failed: {exc}", flush=True)
+            print(
+                f"[orchestrator] discord webhook notification failed: {exc}", flush=True
+            )
 
-    def _hydrate_challenge_artifacts(self, challenge: ChallengeManifest, target_dir: Path) -> None:
+    def _hydrate_challenge_artifacts(
+        self, challenge: ChallengeManifest, target_dir: Path
+    ) -> None:
         for artifact in challenge.artifacts:
             destination = target_dir / artifact["name"]
             destination.parent.mkdir(parents=True, exist_ok=True)
             self.blob_store.download_file(artifact["object_key"], destination)
 
-    def _build_spec_payload(self, run: Run, challenge: ChallengeManifest) -> dict[str, Any]:
+    def _build_spec_payload(
+        self, run: Run, challenge: ChallengeManifest
+    ) -> dict[str, Any]:
         reasoning_effort = str(run.budgets.get("reasoning_effort") or "medium").lower()
         if reasoning_effort not in {"low", "medium", "high", "xhigh"}:
             reasoning_effort = "medium"
@@ -714,7 +872,11 @@ class DockerRunner:
             "challenge_name": challenge.name,
             "status": status,
             "stop_criterion_met": "none",
-            "flag_verification": {"method": "none", "verified": False, "details": reason},
+            "flag_verification": {
+                "method": "none",
+                "verified": False,
+                "details": reason,
+            },
             "failure_reason_code": failure_reason_code,
             "failure_reason_detail": reason,
             "deliverables": [],
@@ -723,8 +885,12 @@ class DockerRunner:
             "evidence": [],
             "notes": reason,
         }
-        (run_mount_dir / "README.md").write_text("# Run Output\n\nNo successful output produced.\n", encoding="utf-8")
-        (run_mount_dir / "result.json").write_text(json.dumps(fallback, indent=2), encoding="utf-8")
+        (run_mount_dir / "README.md").write_text(
+            "# Run Output\n\nNo successful output produced.\n", encoding="utf-8"
+        )
+        (run_mount_dir / "result.json").write_text(
+            json.dumps(fallback, indent=2), encoding="utf-8"
+        )
 
     def _load_validated_result(
         self,
@@ -753,7 +919,13 @@ class DockerRunner:
 
         try:
             validated = SandboxResult.model_validate(result_data)
-            return result_data, validated, contract_valid, failure_reason_code, failure_reason_detail
+            return (
+                result_data,
+                validated,
+                contract_valid,
+                failure_reason_code,
+                failure_reason_detail,
+            )
         except Exception as exc:
             contract_valid = False
             failure_reason_code = "result_validation_failed"
@@ -767,7 +939,13 @@ class DockerRunner:
             )
             result_data = json.loads(result_path.read_text(encoding="utf-8"))
             validated = SandboxResult.model_validate(result_data)
-            return result_data, validated, contract_valid, failure_reason_code, failure_reason_detail
+            return (
+                result_data,
+                validated,
+                contract_valid,
+                failure_reason_code,
+                failure_reason_detail,
+            )
 
     def _build_finalization_metadata(
         self,
@@ -789,9 +967,15 @@ class DockerRunner:
         elif contract_failure_code != "none":
             reason_code = contract_failure_code
             reason_detail = contract_failure_detail
-        elif isinstance(result_data.get("failure_reason_code"), str) and result_data.get("failure_reason_code"):
+        elif isinstance(
+            result_data.get("failure_reason_code"), str
+        ) and result_data.get("failure_reason_code"):
             reason_code = str(result_data.get("failure_reason_code"))
-            reason_detail = str(result_data.get("failure_reason_detail") or result_data.get("notes") or "")
+            reason_detail = str(
+                result_data.get("failure_reason_detail")
+                or result_data.get("notes")
+                or ""
+            )
         elif status_code != 0:
             reason_code = "sandbox_exit_nonzero"
             reason_detail = f"Sandbox exited with status code {status_code}"
@@ -809,12 +993,16 @@ class DockerRunner:
             "failure_reason_detail": reason_detail,
         }
 
-    def _start_local_deploy(self, run_id: str, challenge_dir: Path) -> LocalDeployContext:
+    def _start_local_deploy(
+        self, run_id: str, challenge_dir: Path
+    ) -> LocalDeployContext:
         compose_file = challenge_dir / "docker-compose.yml"
         if not compose_file.exists():
             compose_file = challenge_dir / "compose.yml"
         if not compose_file.exists():
-            raise FileNotFoundError("Local deploy enabled but docker-compose.yml/compose.yml not found")
+            raise FileNotFoundError(
+                "Local deploy enabled but docker-compose.yml/compose.yml not found"
+            )
 
         network_name = f"ctf_run_{run_id.replace('-', '')[:12]}"
         compose_project = f"ctfrun{run_id.replace('-', '')[:10]}"
@@ -822,7 +1010,16 @@ class DockerRunner:
         self.client.networks.create(network_name, check_duplicate=True)
 
         subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "-p", compose_project, "up", "-d"],
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(compose_file),
+                "-p",
+                compose_project,
+                "up",
+                "-d",
+            ],
             cwd=challenge_dir,
             check=True,
             capture_output=True,
@@ -830,7 +1027,9 @@ class DockerRunner:
         )
 
         service_endpoints: list[dict] = []
-        containers = self.client.containers.list(filters={"label": f"com.docker.compose.project={compose_project}"})
+        containers = self.client.containers.list(
+            filters={"label": f"com.docker.compose.project={compose_project}"}
+        )
         network = self.client.networks.get(network_name)
         container_names: list[str] = []
         for service_container in containers:
@@ -858,14 +1057,18 @@ class DockerRunner:
             container_names=container_names,
         )
 
-    def _capture_service_logs(self, local_ctx: LocalDeployContext, run_id: str, service_log_dir: Path) -> None:
+    def _capture_service_logs(
+        self, local_ctx: LocalDeployContext, run_id: str, service_log_dir: Path
+    ) -> None:
         for container_name in local_ctx.container_names:
             try:
                 service_container = self.client.containers.get(container_name)
                 log_blob = service_container.logs(stdout=True, stderr=True)
                 log_path = service_log_dir / f"{container_name}.log"
                 log_path.write_bytes(log_blob)
-                self.blob_store.put_file(f"runs/{run_id}/service-logs/{container_name}.log", log_path)
+                self.blob_store.put_file(
+                    f"runs/{run_id}/service-logs/{container_name}.log", log_path
+                )
             except DockerException:
                 continue
 
