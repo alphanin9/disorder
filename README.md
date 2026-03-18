@@ -75,6 +75,17 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - `DISCORD_WEBHOOK_URL`
   - `DISCORD_NOTIFY_ON_FLAG=true|false`
   - `DISCORD_NOTIFY_INCLUDE_FLAG=true|false`
+- Optional GPU passthrough for GPU-beneficial compute:
+  - `SANDBOX_GPU_PASSTHROUGH=true` requests all Docker-daemon-visible GPUs for each sandbox run.
+  - The full sandbox image intentionally installs `nvidia-cuda-toolkit` unconditionally so GPU-capable hosts do not need a separate image variant.
+  - Host prerequisites still apply:
+    - Linux Docker Engine: install NVIDIA drivers plus NVIDIA Container Toolkit for the daemon.
+    - Docker Desktop / WSL2: ensure host GPU drivers and Docker Desktop GPU support are working for Linux containers.
+  - Validate host support before starting agent runs:
+    - `docker info --format "{{json .Runtimes}}"` should usually show an `nvidia` runtime on Linux hosts with NVIDIA Container Toolkit.
+    - `docker info --format "{{json .CDISpecDirs}}"` may show CDI directories on newer daemon setups.
+    - `docker run --rm --gpus all --entrypoint nvidia-smi ctf-agent-sandbox:latest` is the most direct harness-level smoke test.
+  - Limitation: Docker daemon info is only a support signal. It does not expose an authoritative list of available GPUs, per-GPU free memory, or scheduler-style resource availability. Use host `nvidia-smi` or `nvidia-smi` inside a GPU-enabled container to inspect actual devices.
 
 ## Backups
 - Create a logical Postgres backup with:

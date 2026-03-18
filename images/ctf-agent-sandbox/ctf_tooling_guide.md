@@ -8,6 +8,7 @@ General workflow:
 - Prefer user-space installs and portable binaries (non-root): download/extract into `/workspace/run/tools`, then prepend PATH. This does not apply to Python.
 - Record installed tool versions and how they were installed in `README.md`.
 - Do not scan arbitrary targets; prioritize configured challenge/local endpoints.
+- Depending on harness configuration, you may have CUDA support for compute that would benefit from a GPU. When enabled, the harness exposes every GPU visible to the Docker daemon. Use `nvidia-smi -L` to discover visible devices and `nvidia-smi` for utilization/memory details.
 
 Binary / pwn:
 - Use `pwn checksec <binary>` first.
