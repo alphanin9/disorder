@@ -31,6 +31,8 @@
    - If `SANDBOX_CODEX_SKILLS_HOST_PATH` is configured, orchestrator mounts that directory read-only into the run and sandbox startup copies all seeded skill files into writable `CODEX_HOME/skills`.
    - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
    - If `SANDBOX_IDA_HOST_PATH` is configured, orchestrator mounts IDA read-only, exports `IDADIR`, optionally mounts `/home/ctf/.idapro` for persistent registry state, and sandbox startup auto-accepts configured EULA keys before launching `uv run idalib-mcp` and registering it as an HTTP MCP server for Codex.
+   - If `SANDBOX_GPU_PASSTHROUGH` is configured, orchestrator requests all GPUs visible to the Docker daemon for the sandbox container.
+   - Docker daemon info can provide best-effort support signals such as registered runtimes or CDI spec directories, but it does not expose an authoritative GPU inventory or free-resource view.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
    - `run_results.finalization_metadata` captures normalized completion metadata (`contract_valid`, sandbox exit code, normalized failure reason code, timeout flag, stop-eval status transition).

@@ -160,9 +160,43 @@ class DockerRunner:
             sandbox_env = self._sandbox_environment(db=db, challenge=challenge)
             sandbox_env.update(ida_env)
 
+            gpu_passthrough_enabled = bool(
+                getattr(self.settings, "sandbox_gpu_passthrough", False)
+            )
             device_requests: list[DeviceRequest] | None = None
 
-            if self.settings.sandbox_gpu_passthrough:
+            if gpu_passthrough_enabled:
+                gpu_diag = self._docker_gpu_passthrough_diagnostics()
+                advertised = gpu_diag.get("advertised")
+                if advertised is True:
+                    print(
+                        "[orchestrator] GPU passthrough requested; Docker daemon "
+                        f"advertises runtimes={gpu_diag['runtimes']} "
+                        f"default_runtime={gpu_diag['default_runtime']!r} "
+                        f"cdi_spec_dirs={gpu_diag['cdi_spec_dirs']}. "
+                        "Docker daemon info does not expose an authoritative GPU "
+                        "inventory; validate visible devices inside a GPU-enabled "
+                        "container with nvidia-smi.",
+                        flush=True,
+                    )
+                elif advertised is False:
+                    print(
+                        "[orchestrator] GPU passthrough requested, but Docker daemon "
+                        "info does not advertise an NVIDIA runtime or CDI spec "
+                        "directories. Continuing anyway because some environments "
+                        "(for example Docker Desktop on Windows with WSL2 GPU-PV) "
+                        "may still support --gpus without exposing a daemon-side "
+                        "GPU inventory. Validate with a GPU-enabled container and "
+                        f"nvidia-smi. Detail: {gpu_diag['detail']}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "[orchestrator] GPU passthrough requested, but Docker daemon "
+                        f"info could not be queried. Continuing without a daemon-side "
+                        f"preflight. Detail: {gpu_diag['detail']}",
+                        flush=True,
+                    )
                 device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
 
             container = self.client.containers.run(
@@ -478,6 +512,53 @@ class DockerRunner:
 
         return configured
 
+    def _docker_gpu_passthrough_diagnostics(self) -> dict[str, Any]:
+        try:
+            info = self.client.info()
+        except DockerException as exc:
+            return {
+                "advertised": None,
+                "default_runtime": None,
+                "runtimes": [],
+                "cdi_spec_dirs": [],
+                "detail": (
+                    "Unable to query Docker daemon info for GPU support signals: "
+                    f"{exc}"
+                ),
+            }
+
+        runtimes_raw = info.get("Runtimes")
+        runtimes = (
+            sorted(str(name) for name in runtimes_raw.keys())
+            if isinstance(runtimes_raw, dict)
+            else []
+        )
+        default_runtime = str(info.get("DefaultRuntime") or "").strip() or None
+        cdi_spec_dirs_raw = info.get("CDISpecDirs")
+        cdi_spec_dirs = (
+            [
+                str(path).strip()
+                for path in cdi_spec_dirs_raw
+                if str(path).strip()
+            ]
+            if isinstance(cdi_spec_dirs_raw, list)
+            else []
+        )
+        advertised = bool("nvidia" in runtimes or cdi_spec_dirs)
+
+        return {
+            "advertised": advertised,
+            "default_runtime": default_runtime,
+            "runtimes": runtimes,
+            "cdi_spec_dirs": cdi_spec_dirs,
+            "detail": (
+                "Docker daemon info exposes runtime and CDI configuration, but not "
+                "an authoritative list of host GPUs or free GPU memory. Use host "
+                "nvidia-smi or nvidia-smi inside a GPU-enabled container to inspect "
+                "actual devices."
+            ),
+        }
+
     def _translate_windows_host_path_for_daemon(
         self, target_raw: str, mounts: list[dict[str, Any]]
     ) -> str | None:
@@ -572,9 +653,12 @@ class DockerRunner:
             "CODEX_FLAG_SUBMIT_MCP_ENABLED",
             "1" if flag_submit_mcp_enabled else "0",
         )
+        gpu_passthrough_enabled = bool(
+            getattr(self.settings, "sandbox_gpu_passthrough", False)
+        )
         env.setdefault(
             "SANDBOX_GPU_PASSTHROUGH",
-            "1" if self.settings.sandbox_gpu_passthrough else "0",
+            "1" if gpu_passthrough_enabled else "0",
         )
         return env
 
