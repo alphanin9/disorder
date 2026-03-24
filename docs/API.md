@@ -38,7 +38,7 @@
 ## Runs
 - `GET /runs?active_only=true&status=running&challenge_id=<uuid>&limit=100`
 - `POST /runs`
-  - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "reasoning_effort": "low|medium|high|xhigh", "budgets": { "max_minutes": 30, "max_commands": null }, "stop_criteria": {...optional...}, "agent_invocation": { "model": "gpt-5.4", "profile": null, "extra_args": ["--flag"], "env": {"CODEX_MODEL":"gpt-5.4"} }, "auto_continuation_policy": { "enabled": true, "max_depth": 5, "target": { "final_status": "flag_found" }, "when": { "statuses": ["blocked", "timeout"], "require_contract_match": false }, "on_blocked_reasons": ["provider_quota_or_auth"] }, "local_deploy_enabled": false }`
+  - body: `{ "challenge_id": "<uuid>", "backend": "mock|codex|claude_code", "reasoning_effort": "low|medium|high|xhigh", "budgets": { "max_minutes": 30, "max_commands": null }, "stop_criteria": {...optional...}, "agent_invocation": { "model": "gpt-5.4", "profile": null, "extra_args": ["--flag"], "env": {"CODEX_MODEL":"gpt-5.4"} }, "auto_continuation_policy": { "enabled": true, "max_depth": 5, "target": { "final_status": "flag_found" }, "when": { "statuses": ["blocked", "timeout"], "require_contract_match": false }, "on_blocked_reasons": ["provider_quota_or_auth"] }, "runner_loop_policy": { "enabled": true, "max_attempts": 3, "target_status": "flag_found", "retry_on_statuses": ["blocked"], "retry_on_reason_codes": ["provider_quota_or_auth"], "continue_on_partial_success": true, "min_seconds_remaining": 120 }, "local_deploy_enabled": false }`
 - `POST /runs/{run_id}/continue`
   - parent run must be terminal.
   - body: `{ "message": "...", "type": "hint|deliverable_fix|strategy_change|other"?, "time_limit_seconds": 3600?, "stop_criteria_override": {...optional...}, "agent_invocation_override": {...optional...}, "auto_continuation_policy_override": {...optional...}, "reuse_parent_artifacts": true }`
@@ -60,6 +60,7 @@
   - `agent_invocation`
   - `auto_continuation_policy`
 - Run result metadata now includes `finalization_metadata` with normalized failure/termination reason codes plus auto-continuation audit details.
+- If enabled, same-run retry metadata is stored in `finalization_metadata.runner_loop`; the sandbox also leaves per-attempt snapshots under `runs/<run_id>/run/attempts/`.
 - Continuation bundles now include:
   - `deliverables_manifest.json`
   - `deliverables/<copied parent deliverables>`

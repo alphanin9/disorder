@@ -15,6 +15,7 @@ CONFIG_PATH = Path.home() / ".ctf-harness" / "config.json"
 FINAL_STATUSES = {"flag_found", "deliverable_produced", "blocked", "timeout"}
 CONTINUATION_TYPES = {"hint", "deliverable_fix", "strategy_change", "other"}
 RUN_FINAL_STATUSES = {"flag_found", "deliverable_produced", "blocked", "timeout"}
+RUNNER_LOOP_TARGET_STATUSES = {"flag_found", "deliverable_produced", "blocked"}
 
 
 def _load_config() -> dict[str, Any]:
@@ -29,7 +30,9 @@ def _save_config(config: dict[str, Any]) -> None:
 
 
 def _api_request(method: str, url: str, path: str, payload: dict | None = None) -> dict:
-    response = httpx.request(method, f"{url.rstrip('/')}{path}", json=payload, timeout=120.0)
+    response = httpx.request(
+        method, f"{url.rstrip('/')}{path}", json=payload, timeout=120.0
+    )
     if response.status_code >= 400:
         raise typer.BadParameter(f"API error {response.status_code}: {response.text}")
     if response.text:
@@ -42,10 +45,14 @@ def _resolve_api_url(api_url: str | None) -> str:
     return api_url or config.get("api_url") or "http://localhost:8000"
 
 
-def _stream_logs_until_complete(resolved_api: str, run_id: str, poll_seconds: float) -> str:
+def _stream_logs_until_complete(
+    resolved_api: str, run_id: str, poll_seconds: float
+) -> str:
     offset = 0
     while True:
-        logs = _api_request("GET", resolved_api, f"/runs/{run_id}/logs?offset={offset}&limit=65536")
+        logs = _api_request(
+            "GET", resolved_api, f"/runs/{run_id}/logs?offset={offset}&limit=65536"
+        )
         chunk = logs.get("logs", "")
         if chunk:
             typer.echo(chunk, nl=False)
@@ -101,7 +108,9 @@ def _build_agent_invocation_payload(
             key, value = entry.split("=", 1)
             key = key.strip()
             if not key:
-                raise typer.BadParameter(f"--agent-env must include a non-empty key: {entry}")
+                raise typer.BadParameter(
+                    f"--agent-env must include a non-empty key: {entry}"
+                )
             env_payload[key] = value
         payload["env"] = env_payload
     return payload or None
@@ -133,7 +142,9 @@ def _build_auto_continuation_policy_payload(
         for entry in parsed_statuses:
             if entry not in RUN_FINAL_STATUSES:
                 allowed = ", ".join(sorted(RUN_FINAL_STATUSES))
-                raise typer.BadParameter(f"--auto-continue-on entries must be one of: {allowed}")
+                raise typer.BadParameter(
+                    f"--auto-continue-on entries must be one of: {allowed}"
+                )
         payload.setdefault("when", {})
         payload["when"]["statuses"] = parsed_statuses
     if reason_codes:
@@ -143,11 +154,75 @@ def _build_auto_continuation_policy_payload(
     return payload or None
 
 
+def _build_runner_loop_policy_payload(
+    *,
+    enabled: bool,
+    disable: bool,
+    target_status: str | None,
+    max_attempts: int | None,
+    retry_on_statuses: str | None,
+    reason_codes: list[str],
+    continue_on_partial_success: bool,
+    min_seconds_remaining: int | None,
+    instruction_template: str | None,
+    policy_file: Path | None,
+) -> dict[str, Any] | None:
+    payload = _load_json_file(policy_file) if policy_file is not None else {}
+    has_explicit_values = any(
+        value is not None and value != []
+        for value in (
+            target_status,
+            max_attempts,
+            retry_on_statuses,
+            min_seconds_remaining,
+            instruction_template,
+        )
+    ) or bool(reason_codes)
+
+    if disable:
+        payload["enabled"] = False
+    elif enabled or has_explicit_values:
+        payload["enabled"] = True
+
+    if target_status is not None:
+        if target_status not in RUNNER_LOOP_TARGET_STATUSES:
+            allowed = ", ".join(sorted(RUNNER_LOOP_TARGET_STATUSES))
+            raise typer.BadParameter(
+                f"--runner-loop-target-status must be one of: {allowed}"
+            )
+        payload["target_status"] = target_status
+    if max_attempts is not None:
+        payload["max_attempts"] = max_attempts
+
+    parsed_statuses = _csv_values(retry_on_statuses)
+    if parsed_statuses:
+        for entry in parsed_statuses:
+            if entry not in RUNNER_LOOP_TARGET_STATUSES:
+                allowed = ", ".join(sorted(RUNNER_LOOP_TARGET_STATUSES))
+                raise typer.BadParameter(
+                    f"--runner-loop-retry-on entries must be one of: {allowed}"
+                )
+        payload["retry_on_statuses"] = parsed_statuses
+
+    if reason_codes:
+        payload["retry_on_reason_codes"] = reason_codes
+    if enabled or has_explicit_values:
+        payload["continue_on_partial_success"] = continue_on_partial_success
+    if min_seconds_remaining is not None:
+        payload["min_seconds_remaining"] = min_seconds_remaining
+    if instruction_template:
+        payload["instruction_template"] = instruction_template
+
+    return payload or None
+
+
 @app.command("configure")
 def configure(
     ctfd_url: str = typer.Option(..., "--ctfd-url", help="CTFd base URL"),
     token: str = typer.Option(..., "--token", help="CTFd API token"),
-    api_url: str = typer.Option("http://localhost:8000", "--api-url", help="Control plane URL"),
+    api_url: str = typer.Option(
+        "http://localhost:8000", "--api-url", help="Control plane URL"
+    ),
 ) -> None:
     config = _load_config()
     config.update({"ctfd_url": ctfd_url, "token": token, "api_url": api_url})
@@ -172,15 +247,22 @@ def sync(
 
 
 @app.command("list")
-def list_challenges(api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL")) -> None:
+def list_challenges(
+    api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
+) -> None:
     resolved_api = _resolve_api_url(api_url)
     data = _api_request("GET", resolved_api, "/challenges")
     for item in data.get("items", []):
-        typer.echo(f"{item['id']} | {item['name']} | {item['category']} | {item['points']}")
+        typer.echo(
+            f"{item['id']} | {item['name']} | {item['category']} | {item['points']}"
+        )
 
 
 @app.command("show")
-def show_challenge(challenge_id: str, api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL")) -> None:
+def show_challenge(
+    challenge_id: str,
+    api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
+) -> None:
     resolved_api = _resolve_api_url(api_url)
     data = _api_request("GET", resolved_api, f"/challenges/{challenge_id}")
     typer.echo(json.dumps(data, indent=2))
@@ -188,23 +270,97 @@ def show_challenge(challenge_id: str, api_url: str | None = typer.Option(None, "
 
 @app.command("run")
 def run_challenge(
-    challenge_id: str = typer.Option(..., "--challenge-id", help="Challenge UUID from /challenges"),
+    challenge_id: str = typer.Option(
+        ..., "--challenge-id", help="Challenge UUID from /challenges"
+    ),
     backend: str = typer.Option("mock", "--backend", help="mock|codex|claude_code"),
-    local_deploy: bool = typer.Option(False, "--local-deploy", help="Enable local docker compose deploy if present"),
+    local_deploy: bool = typer.Option(
+        False, "--local-deploy", help="Enable local docker compose deploy if present"
+    ),
     model: str | None = typer.Option(None, "--model", help="Backend model override"),
-    profile: str | None = typer.Option(None, "--profile", help="Backend profile override"),
-    agent_arg: list[str] = typer.Option([], "--agent-arg", help="Extra backend argument; repeat for multiple values"),
-    agent_env: list[str] = typer.Option([], "--agent-env", help="Backend env override in KEY=VALUE form"),
-    agent_invocation_file: Path | None = typer.Option(None, "--agent-invocation-file", help="JSON file for agent invocation"),
-    auto_continue_until: str | None = typer.Option(None, "--auto-continue-until", help="Terminal target status"),
-    auto_continue_max_depth: int | None = typer.Option(None, "--auto-continue-max-depth", min=1, max=20),
-    auto_continue_on: str | None = typer.Option(None, "--auto-continue-on", help="Comma-separated statuses to retry"),
-    auto_continue_reason: list[str] = typer.Option([], "--auto-continue-reason", help="Failure reason code filter; repeatable"),
-    auto_continue_message_template: str | None = typer.Option(None, "--auto-continue-message-template"),
-    auto_continuation_policy_file: Path | None = typer.Option(None, "--auto-continuation-policy-file", help="JSON file for auto continuation policy"),
-    disable_auto_continue: bool = typer.Option(False, "--disable-auto-continue", help="Explicitly disable auto continuation for this run"),
+    profile: str | None = typer.Option(
+        None, "--profile", help="Backend profile override"
+    ),
+    agent_arg: list[str] = typer.Option(
+        [], "--agent-arg", help="Extra backend argument; repeat for multiple values"
+    ),
+    agent_env: list[str] = typer.Option(
+        [], "--agent-env", help="Backend env override in KEY=VALUE form"
+    ),
+    agent_invocation_file: Path | None = typer.Option(
+        None, "--agent-invocation-file", help="JSON file for agent invocation"
+    ),
+    auto_continue_until: str | None = typer.Option(
+        None, "--auto-continue-until", help="Terminal target status"
+    ),
+    auto_continue_max_depth: int | None = typer.Option(
+        None, "--auto-continue-max-depth", min=1, max=20
+    ),
+    auto_continue_on: str | None = typer.Option(
+        None, "--auto-continue-on", help="Comma-separated statuses to retry"
+    ),
+    auto_continue_reason: list[str] = typer.Option(
+        [], "--auto-continue-reason", help="Failure reason code filter; repeatable"
+    ),
+    auto_continue_message_template: str | None = typer.Option(
+        None, "--auto-continue-message-template"
+    ),
+    auto_continuation_policy_file: Path | None = typer.Option(
+        None,
+        "--auto-continuation-policy-file",
+        help="JSON file for auto continuation policy",
+    ),
+    disable_auto_continue: bool = typer.Option(
+        False,
+        "--disable-auto-continue",
+        help="Explicitly disable auto continuation for this run",
+    ),
+    enable_runner_loop: bool = typer.Option(
+        False,
+        "--enable-runner-loop",
+        help="Enable bounded same-run retry/reflection inside the sandbox",
+    ),
+    disable_runner_loop: bool = typer.Option(
+        False,
+        "--disable-runner-loop",
+        help="Explicitly disable runner loop policy for this run",
+    ),
+    runner_loop_target_status: str | None = typer.Option(
+        None,
+        "--runner-loop-target-status",
+        help="flag_found|deliverable_produced|blocked",
+    ),
+    runner_loop_max_attempts: int | None = typer.Option(
+        None, "--runner-loop-max-attempts", min=1, max=20
+    ),
+    runner_loop_retry_on: str | None = typer.Option(
+        None,
+        "--runner-loop-retry-on",
+        help="Comma-separated same-run statuses to retry",
+    ),
+    runner_loop_reason: list[str] = typer.Option(
+        [],
+        "--runner-loop-reason",
+        help="Failure reason code filter for same-run retries; repeatable",
+    ),
+    runner_loop_continue_on_partial_success: bool = typer.Option(
+        True,
+        "--runner-loop-continue-on-partial-success/--runner-loop-stop-on-partial-success",
+        help="When targeting flag_found, keep retrying after deliverable_produced results",
+    ),
+    runner_loop_min_seconds_remaining: int | None = typer.Option(
+        None, "--runner-loop-min-seconds-remaining", min=0, max=24 * 60 * 60
+    ),
+    runner_loop_instruction_template: str | None = typer.Option(
+        None, "--runner-loop-instruction-template"
+    ),
+    runner_loop_policy_file: Path | None = typer.Option(
+        None, "--runner-loop-policy-file", help="JSON file for runner loop policy"
+    ),
     api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
-    stream_logs: bool = typer.Option(True, "--stream-logs/--no-stream-logs", help="Stream logs until run completes"),
+    stream_logs: bool = typer.Option(
+        True, "--stream-logs/--no-stream-logs", help="Stream logs until run completes"
+    ),
     poll_seconds: float = typer.Option(1.0, "--poll-seconds", min=0.2, max=10.0),
 ) -> None:
     resolved_api = _resolve_api_url(api_url)
@@ -233,6 +389,20 @@ def run_challenge(
     )
     if auto_policy_payload is not None:
         payload["auto_continuation_policy"] = auto_policy_payload
+    runner_loop_payload = _build_runner_loop_policy_payload(
+        enabled=enable_runner_loop,
+        disable=disable_runner_loop,
+        target_status=runner_loop_target_status,
+        max_attempts=runner_loop_max_attempts,
+        retry_on_statuses=runner_loop_retry_on,
+        reason_codes=runner_loop_reason,
+        continue_on_partial_success=runner_loop_continue_on_partial_success,
+        min_seconds_remaining=runner_loop_min_seconds_remaining,
+        instruction_template=runner_loop_instruction_template,
+        policy_file=runner_loop_policy_file,
+    )
+    if runner_loop_payload is not None:
+        payload["runner_loop_policy"] = runner_loop_payload
     run = _api_request("POST", resolved_api, "/runs", payload)
     run_id = run["id"]
     typer.echo(f"Started run {run_id} with backend={backend}")
@@ -240,7 +410,9 @@ def run_challenge(
     if not stream_logs:
         return
 
-    _stream_logs_until_complete(resolved_api=resolved_api, run_id=run_id, poll_seconds=poll_seconds)
+    _stream_logs_until_complete(
+        resolved_api=resolved_api, run_id=run_id, poll_seconds=poll_seconds
+    )
 
     result_payload = _api_request("GET", resolved_api, f"/runs/{run_id}/result")
     typer.echo(json.dumps(result_payload, indent=2))
@@ -249,25 +421,67 @@ def run_challenge(
 @runs_app.command("continue")
 def continue_existing_run(
     parent_run_id: str = typer.Argument(..., help="Parent run UUID"),
-    message: str = typer.Option(..., "--message", help="Operator continuation guidance"),
-    continuation_type: str | None = typer.Option(None, "--type", help="hint|deliverable_fix|strategy_change|other"),
-    time_limit_seconds: int | None = typer.Option(None, "--time-limit-seconds", min=60, max=24 * 60 * 60),
-    stop_criteria_file: Path | None = typer.Option(None, "--stop-criteria-file", help="JSON file with stop criteria override object"),
-    reuse_parent_artifacts: bool = typer.Option(True, "--reuse-parent-artifacts/--no-reuse-parent-artifacts"),
-    model: str | None = typer.Option(None, "--model", help="Backend model override for the child run"),
-    profile: str | None = typer.Option(None, "--profile", help="Backend profile override for the child run"),
-    agent_arg: list[str] = typer.Option([], "--agent-arg", help="Extra backend argument; repeat for multiple values"),
-    agent_env: list[str] = typer.Option([], "--agent-env", help="Backend env override in KEY=VALUE form"),
-    agent_invocation_file: Path | None = typer.Option(None, "--agent-invocation-file", help="JSON file for agent invocation override"),
-    auto_continue_until: str | None = typer.Option(None, "--auto-continue-until", help="Terminal target status"),
-    auto_continue_max_depth: int | None = typer.Option(None, "--auto-continue-max-depth", min=1, max=20),
-    auto_continue_on: str | None = typer.Option(None, "--auto-continue-on", help="Comma-separated statuses to retry"),
-    auto_continue_reason: list[str] = typer.Option([], "--auto-continue-reason", help="Failure reason code filter; repeatable"),
-    auto_continue_message_template: str | None = typer.Option(None, "--auto-continue-message-template"),
-    auto_continuation_policy_file: Path | None = typer.Option(None, "--auto-continuation-policy-file", help="JSON file for auto continuation policy override"),
-    disable_auto_continue: bool = typer.Option(False, "--disable-auto-continue", help="Disable inherited auto continuation on the child run"),
+    message: str = typer.Option(
+        ..., "--message", help="Operator continuation guidance"
+    ),
+    continuation_type: str | None = typer.Option(
+        None, "--type", help="hint|deliverable_fix|strategy_change|other"
+    ),
+    time_limit_seconds: int | None = typer.Option(
+        None, "--time-limit-seconds", min=60, max=24 * 60 * 60
+    ),
+    stop_criteria_file: Path | None = typer.Option(
+        None,
+        "--stop-criteria-file",
+        help="JSON file with stop criteria override object",
+    ),
+    reuse_parent_artifacts: bool = typer.Option(
+        True, "--reuse-parent-artifacts/--no-reuse-parent-artifacts"
+    ),
+    model: str | None = typer.Option(
+        None, "--model", help="Backend model override for the child run"
+    ),
+    profile: str | None = typer.Option(
+        None, "--profile", help="Backend profile override for the child run"
+    ),
+    agent_arg: list[str] = typer.Option(
+        [], "--agent-arg", help="Extra backend argument; repeat for multiple values"
+    ),
+    agent_env: list[str] = typer.Option(
+        [], "--agent-env", help="Backend env override in KEY=VALUE form"
+    ),
+    agent_invocation_file: Path | None = typer.Option(
+        None, "--agent-invocation-file", help="JSON file for agent invocation override"
+    ),
+    auto_continue_until: str | None = typer.Option(
+        None, "--auto-continue-until", help="Terminal target status"
+    ),
+    auto_continue_max_depth: int | None = typer.Option(
+        None, "--auto-continue-max-depth", min=1, max=20
+    ),
+    auto_continue_on: str | None = typer.Option(
+        None, "--auto-continue-on", help="Comma-separated statuses to retry"
+    ),
+    auto_continue_reason: list[str] = typer.Option(
+        [], "--auto-continue-reason", help="Failure reason code filter; repeatable"
+    ),
+    auto_continue_message_template: str | None = typer.Option(
+        None, "--auto-continue-message-template"
+    ),
+    auto_continuation_policy_file: Path | None = typer.Option(
+        None,
+        "--auto-continuation-policy-file",
+        help="JSON file for auto continuation policy override",
+    ),
+    disable_auto_continue: bool = typer.Option(
+        False,
+        "--disable-auto-continue",
+        help="Disable inherited auto continuation on the child run",
+    ),
     api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
-    stream_logs: bool = typer.Option(True, "--stream-logs/--no-stream-logs", help="Stream logs until run completes"),
+    stream_logs: bool = typer.Option(
+        True, "--stream-logs/--no-stream-logs", help="Stream logs until run completes"
+    ),
     poll_seconds: float = typer.Option(1.0, "--poll-seconds", min=0.2, max=10.0),
 ) -> None:
     if continuation_type is not None and continuation_type not in CONTINUATION_TYPES:
@@ -313,7 +527,9 @@ def continue_existing_run(
     if not stream_logs:
         return
 
-    _stream_logs_until_complete(resolved_api=resolved_api, run_id=run_id, poll_seconds=poll_seconds)
+    _stream_logs_until_complete(
+        resolved_api=resolved_api, run_id=run_id, poll_seconds=poll_seconds
+    )
     result_payload = _api_request("GET", resolved_api, f"/runs/{run_id}/result")
     typer.echo(json.dumps(result_payload, indent=2))
 
@@ -328,7 +544,9 @@ def logs(
     resolved_api = _resolve_api_url(api_url)
     offset = 0
     while True:
-        payload = _api_request("GET", resolved_api, f"/runs/{run_id}/logs?offset={offset}&limit=65536")
+        payload = _api_request(
+            "GET", resolved_api, f"/runs/{run_id}/logs?offset={offset}&limit=65536"
+        )
         if payload.get("logs"):
             typer.echo(payload["logs"], nl=False)
         offset = int(payload.get("next_offset", offset))
@@ -344,14 +562,19 @@ def logs(
 
 
 @app.command("result")
-def result(run_id: str, api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL")) -> None:
+def result(
+    run_id: str,
+    api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
+) -> None:
     resolved_api = _resolve_api_url(api_url)
     payload = _api_request("GET", resolved_api, f"/runs/{run_id}/result")
     typer.echo(json.dumps(payload, indent=2))
 
 
 @app.command("health")
-def health(api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL")) -> None:
+def health(
+    api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
+) -> None:
     resolved_api = _resolve_api_url(api_url)
     response = httpx.get(f"{resolved_api.rstrip('/')}/healthz", timeout=10.0)
     response.raise_for_status()

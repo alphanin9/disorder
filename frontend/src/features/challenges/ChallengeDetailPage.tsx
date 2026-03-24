@@ -6,7 +6,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 
 import { createRun, getChallenge, getCtfs, getRuns, updateChallenge, uploadChallengeArtifact } from "@/api/endpoints";
-import type { AutoContinuationPolicyPayload, ChallengeArtifact, RunCreateRequest } from "@/api/models";
+import type {
+  AutoContinuationPolicyPayload,
+  ChallengeArtifact,
+  RunCreateRequest,
+  RunnerLoopPolicyPayload,
+} from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,6 +20,7 @@ import { ArtifactDropzone } from "@/features/challenges/ArtifactDropzone";
 import { formatDateTime } from "@/features/runs/utils";
 
 const AUTO_CONTINUATION_STATUSES = new Set(["blocked", "timeout", "flag_found", "deliverable_produced"] as const);
+const RUNNER_LOOP_STATUSES = new Set(["blocked", "flag_found", "deliverable_produced"] as const);
 
 const runSchema = z.object({
   backend: z.enum(["mock", "codex", "claude_code"]),
@@ -26,6 +32,13 @@ const runSchema = z.object({
   auto_continue_max_depth: z.coerce.number().int().min(1).max(20).default(3),
   auto_continue_statuses: z.string().default("blocked,timeout"),
   auto_continue_reason_codes: z.string().default(""),
+  runner_loop_enabled: z.boolean().default(false),
+  runner_loop_max_attempts: z.coerce.number().int().min(1).max(20).default(3),
+  runner_loop_retry_on_statuses: z.string().default("blocked"),
+  runner_loop_reason_codes: z.string().default(""),
+  runner_loop_continue_on_partial_success: z.boolean().default(true),
+  runner_loop_min_seconds_remaining: z.coerce.number().int().min(0).max(24 * 60 * 60).default(120),
+  runner_loop_instruction_template: z.string().optional(),
   local_deploy_enabled: z.boolean().default(false),
   max_minutes: z.coerce.number().int().min(1, "Must be at least 1 minute").max(24 * 60, "Must be <= 1440 minutes"),
   max_commands: z.preprocess(
@@ -179,6 +192,13 @@ export function ChallengeDetailPage() {
       auto_continue_max_depth: 3,
       auto_continue_statuses: "blocked,timeout",
       auto_continue_reason_codes: "",
+      runner_loop_enabled: false,
+      runner_loop_max_attempts: 3,
+      runner_loop_retry_on_statuses: "blocked",
+      runner_loop_reason_codes: "",
+      runner_loop_continue_on_partial_success: true,
+      runner_loop_min_seconds_remaining: 120,
+      runner_loop_instruction_template: "",
       local_deploy_enabled: false,
       max_minutes: 30,
       max_commands: null,
@@ -245,6 +265,29 @@ export function ChallengeDetailPage() {
                 .filter(Boolean),
             }
           : undefined;
+      const runnerLoopPolicy: RunnerLoopPolicyPayload | undefined =
+        values.runner_loop_enabled
+          ? {
+              enabled: true,
+              max_attempts: values.runner_loop_max_attempts,
+              target_status: values.goal === "flag" ? "flag_found" : "deliverable_produced",
+              retry_on_statuses: values.runner_loop_retry_on_statuses
+                .split(",")
+                .map((value) => value.trim())
+                .filter((value): value is "blocked" | "flag_found" | "deliverable_produced" =>
+                  RUNNER_LOOP_STATUSES.has(value as "blocked" | "flag_found" | "deliverable_produced"),
+                ),
+              retry_on_reason_codes: values.runner_loop_reason_codes
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean),
+              continue_on_partial_success: values.runner_loop_continue_on_partial_success,
+              min_seconds_remaining: values.runner_loop_min_seconds_remaining,
+              ...(values.runner_loop_instruction_template?.trim()
+                ? { instruction_template: values.runner_loop_instruction_template.trim() }
+                : {}),
+            }
+          : undefined;
 
       const payload: RunCreateRequest = {
         challenge_id: challengeId ?? "",
@@ -258,6 +301,7 @@ export function ChallengeDetailPage() {
         local_deploy_enabled: values.local_deploy_enabled,
         agent_invocation: agentInvocation,
         auto_continuation_policy: autoContinuationPolicy,
+        runner_loop_policy: runnerLoopPolicy,
       };
       return createRun(payload);
     },
@@ -532,6 +576,83 @@ export function ChallengeDetailPage() {
                     {...runForm.register("auto_continue_reason_codes")}
                   />
                   <p className="mt-1 text-xs text-ink-muted">Optional. Leave blank to retry any selected status.</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-md border border-line bg-surface-muted p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" {...runForm.register("runner_loop_enabled")} />
+              Retry inside the same sandbox run
+            </label>
+            <p className="mt-1 text-xs text-ink-muted">
+              Reuses the same writable workspace, snapshots each attempt under <code>/workspace/run/attempts</code>, and does not create child runs.
+            </p>
+            {runForm.watch("runner_loop_enabled") ? (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium" htmlFor="runner_loop_max_attempts">
+                    Max Attempts
+                  </label>
+                  <input
+                    id="runner_loop_max_attempts"
+                    type="number"
+                    min={1}
+                    max={20}
+                    className={inputClasses}
+                    {...runForm.register("runner_loop_max_attempts")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium" htmlFor="runner_loop_retry_on_statuses">
+                    Retry Statuses
+                  </label>
+                  <input
+                    id="runner_loop_retry_on_statuses"
+                    className={inputClasses}
+                    placeholder="blocked"
+                    {...runForm.register("runner_loop_retry_on_statuses")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium" htmlFor="runner_loop_reason_codes">
+                    Failure Reason Codes
+                  </label>
+                  <input
+                    id="runner_loop_reason_codes"
+                    className={inputClasses}
+                    placeholder="provider_quota_or_auth,result_validation_failed"
+                    {...runForm.register("runner_loop_reason_codes")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium" htmlFor="runner_loop_min_seconds_remaining">
+                    Min Seconds Remaining
+                  </label>
+                  <input
+                    id="runner_loop_min_seconds_remaining"
+                    type="number"
+                    min={0}
+                    max={24 * 60 * 60}
+                    className={inputClasses}
+                    {...runForm.register("runner_loop_min_seconds_remaining")}
+                  />
+                </div>
+                <label className="sm:col-span-2 flex items-center gap-2 text-sm">
+                  <input type="checkbox" {...runForm.register("runner_loop_continue_on_partial_success")} />
+                  Keep retrying after <code>deliverable_produced</code> when the goal is a flag
+                </label>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium" htmlFor="runner_loop_instruction_template">
+                    Retry Instruction Template
+                  </label>
+                  <textarea
+                    id="runner_loop_instruction_template"
+                    className={`${inputClasses} min-h-24 font-mono text-xs`}
+                    placeholder="Previous attempt ended with status {status} and reason {failure_reason_code}. Reuse the existing workspace..."
+                    {...runForm.register("runner_loop_instruction_template")}
+                  />
                 </div>
               </div>
             ) : null}

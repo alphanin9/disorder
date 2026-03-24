@@ -23,6 +23,9 @@ STOP_CRITERIA_VALUES = {"primary", "secondary", "none"}
 DELIVERABLE_TYPES = {"solve_script", "exploit", "binary", "writeup", "other"}
 EVIDENCE_KINDS = {"command", "file", "log", "decompiler"}
 FLAG_VERIFICATION_METHODS = {"platform_submit", "local_check", "regex_only", "none"}
+RUNNER_LOOP_STATUSES = RESULT_STATUSES
+RUNNER_LOOP_STATE_PATH = RUN_DIR / "runner_loop_state.json"
+ATTEMPTS_DIR = RUN_DIR / "attempts"
 MANAGED_MCP_CONFIG_BEGIN = "# BEGIN DISORDER MANAGED MCP SERVERS"
 MANAGED_MCP_CONFIG_END = "# END DISORDER MANAGED MCP SERVERS"
 AGENT_INVOCATION_ENV_ALLOWLIST = {
@@ -65,6 +68,11 @@ def _write_result(payload: dict[str, Any]) -> None:
 def _write_readme(content: str) -> None:
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     (RUN_DIR / "README.md").write_text(content, encoding="utf-8")
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _copy_seed_tree(
@@ -159,8 +167,12 @@ def _render_continuation_context(spec: dict[str, Any]) -> str:
     parent_result_path = str(continuation.get("parent_result_path") or "").strip()
     parent_readme_path = str(continuation.get("parent_readme_path") or "").strip()
     request_path = str(continuation.get("request_path") or "").strip()
-    deliverables_mount_path = str(continuation.get("deliverables_mount_path") or "").strip()
-    deliverables_manifest_path = str(continuation.get("deliverables_manifest_path") or "").strip()
+    deliverables_mount_path = str(
+        continuation.get("deliverables_mount_path") or ""
+    ).strip()
+    deliverables_manifest_path = str(
+        continuation.get("deliverables_manifest_path") or ""
+    ).strip()
     lines = [
         f"- Parent run id: {parent_run_id}",
         f"- Continuation type: {continuation_type}",
@@ -183,7 +195,145 @@ def _render_continuation_context(spec: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _render_prompt(spec: dict[str, Any]) -> str:
+def _load_runner_loop_policy(spec: dict[str, Any]) -> dict[str, Any]:
+    payload = spec.get("runner_loop_policy")
+    if not isinstance(payload, dict):
+        return {
+            "enabled": False,
+            "max_attempts": 3,
+            "target_status": "flag_found",
+            "retry_on_statuses": ["blocked"],
+            "retry_on_reason_codes": [],
+            "continue_on_partial_success": True,
+            "min_seconds_remaining": 120,
+            "instruction_template": (
+                "Previous attempt ended with status {status} and reason "
+                "{failure_reason_code}. Reuse the existing workspace, inspect prior "
+                "attempt artifacts, and continue from the most promising point."
+            ),
+        }
+
+    retry_on_statuses = [
+        str(entry).strip().lower()
+        for entry in payload.get("retry_on_statuses", [])
+        if str(entry).strip().lower() in RUNNER_LOOP_STATUSES
+    ]
+    retry_on_reason_codes = [
+        str(entry).strip()
+        for entry in payload.get("retry_on_reason_codes", [])
+        if str(entry).strip()
+    ]
+    target_status = str(payload.get("target_status") or "flag_found").strip().lower()
+    if target_status not in RUNNER_LOOP_STATUSES:
+        target_status = "flag_found"
+
+    return {
+        "enabled": bool(payload.get("enabled", False)),
+        "max_attempts": max(1, int(payload.get("max_attempts", 3) or 3)),
+        "target_status": target_status,
+        "retry_on_statuses": retry_on_statuses or ["blocked"],
+        "retry_on_reason_codes": retry_on_reason_codes,
+        "continue_on_partial_success": bool(
+            payload.get("continue_on_partial_success", True)
+        ),
+        "min_seconds_remaining": max(
+            0, int(payload.get("min_seconds_remaining", 120) or 0)
+        ),
+        "instruction_template": str(
+            payload.get("instruction_template")
+            or (
+                "Previous attempt ended with status {status} and reason "
+                "{failure_reason_code}. Reuse the existing workspace, inspect prior "
+                "attempt artifacts, and continue from the most promising point."
+            )
+        ).strip(),
+    }
+
+
+def _render_runner_loop_instruction(
+    policy: dict[str, Any],
+    previous_attempt: dict[str, Any] | None,
+    *,
+    attempt_number: int,
+    max_attempts: int,
+) -> str:
+    if previous_attempt is None:
+        return "This is the first attempt in this run."
+
+    template = str(policy.get("instruction_template") or "").strip()
+    values = {
+        "status": previous_attempt.get("status", "blocked"),
+        "failure_reason_code": previous_attempt.get("failure_reason_code", "none"),
+        "attempt_number": attempt_number,
+        "max_attempts": max_attempts,
+        "target_status": policy.get("target_status", "flag_found"),
+        "snapshot_dir": previous_attempt.get("snapshot_dir", ""),
+    }
+    try:
+        rendered = template.format(**values)
+    except Exception:
+        rendered = (
+            "Previous attempt ended with status "
+            f"{values['status']} and reason {values['failure_reason_code']}. "
+            "Inspect the previous attempt artifacts and continue from the most "
+            "promising point."
+        )
+    return (
+        rendered.strip() or "Inspect the previous attempt artifacts before continuing."
+    )
+
+
+def _render_runner_loop_context(
+    spec: dict[str, Any],
+    *,
+    attempt_number: int = 1,
+    max_attempts: int | None = None,
+    previous_attempt: dict[str, Any] | None = None,
+) -> str:
+    policy = _load_runner_loop_policy(spec)
+    effective_max_attempts = max_attempts or int(policy.get("max_attempts", 3) or 3)
+    if not policy.get("enabled"):
+        return "This run has no same-run retry loop context."
+
+    lines = [
+        f"- Attempt number: {attempt_number} of {effective_max_attempts}",
+        f"- Target status: {policy.get('target_status', 'flag_found')}",
+        f"- Retryable statuses: {', '.join(policy.get('retry_on_statuses', ['blocked']))}",
+        f"- Retryable reason codes: {', '.join(policy.get('retry_on_reason_codes', [])) or '(any)'}",
+        f"- Continue on partial success: {'true' if policy.get('continue_on_partial_success', True) else 'false'}",
+        f"- Minimum seconds remaining to retry again: {policy.get('min_seconds_remaining', 0)}",
+    ]
+
+    if previous_attempt is None:
+        lines.append("- No previous attempt snapshot exists yet.")
+    else:
+        lines.extend(
+            [
+                f"- Previous normalized status: {previous_attempt.get('status', 'blocked')}",
+                f"- Previous failure reason code: {previous_attempt.get('failure_reason_code', 'none')}",
+                f"- Previous attempt snapshot: {previous_attempt.get('snapshot_dir', '(unknown)')}",
+                f"- Previous deliverables manifest: {previous_attempt.get('deliverables_manifest_path', '(none)')}",
+                f"- Previous backend last message: {previous_attempt.get('last_message_path', '(none)')}",
+            ]
+        )
+
+    lines.extend(
+        [
+            "- Machine-generated retry instruction:",
+            _render_runner_loop_instruction(
+                policy,
+                previous_attempt,
+                attempt_number=attempt_number,
+                max_attempts=effective_max_attempts,
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _render_prompt(
+    spec: dict[str, Any], *, runner_loop_context: str | None = None
+) -> str:
     template = PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
     tooling_guide = (
         TOOLING_GUIDE_PATH.read_text(encoding="utf-8")
@@ -195,6 +345,11 @@ def _render_prompt(spec: dict[str, Any]) -> str:
         "\n".join(f"- {artifact}" for artifact in artifact_list[:200]) or "- (none)"
     )
     continuation_context = _render_continuation_context(spec)
+    rendered_runner_loop_context = (
+        runner_loop_context
+        if runner_loop_context is not None
+        else _render_runner_loop_context(spec)
+    )
     return template.format(
         challenge_name=spec.get("challenge_name", "Unknown"),
         category=spec.get("category", "unknown"),
@@ -204,6 +359,7 @@ def _render_prompt(spec: dict[str, Any]) -> str:
         challenge_artifacts=artifacts_preview,
         stop_criteria=json.dumps(spec.get("stop_criteria", {}), indent=2),
         allowed_endpoints=json.dumps(spec.get("allowed_endpoints", []), indent=2),
+        runner_loop_context=rendered_runner_loop_context,
         continuation_context=continuation_context,
         tooling_guide=tooling_guide,
     )
@@ -628,14 +784,24 @@ def _load_agent_invocation(spec: dict[str, Any]) -> dict[str, Any]:
     return {
         "model": payload.get("model"),
         "profile": payload.get("profile"),
-        "extra_args": [str(item) for item in extra_args if str(item).strip()] if isinstance(extra_args, list) else [],
-        "env": {str(key): str(value) for key, value in env_payload.items()} if isinstance(env_payload, dict) else {},
+        "extra_args": [str(item) for item in extra_args if str(item).strip()]
+        if isinstance(extra_args, list)
+        else [],
+        "env": {str(key): str(value) for key, value in env_payload.items()}
+        if isinstance(env_payload, dict)
+        else {},
     }
 
 
-def _sanitized_agent_invocation_for_logs(backend: str, invocation: dict[str, Any]) -> dict[str, Any]:
+def _sanitized_agent_invocation_for_logs(
+    backend: str, invocation: dict[str, Any]
+) -> dict[str, Any]:
     allowed_env = AGENT_INVOCATION_ENV_ALLOWLIST.get(backend, set())
-    sanitized_env = {key: value for key, value in invocation.get("env", {}).items() if key in allowed_env}
+    sanitized_env = {
+        key: value
+        for key, value in invocation.get("env", {}).items()
+        if key in allowed_env
+    }
     return {
         "model": invocation.get("model"),
         "profile": invocation.get("profile"),
@@ -703,7 +869,12 @@ def _resolve_backend_command(
         if extra_args:
             command.extend(extra_args)
         command.append("-")
-        return command, prompt_file.read_text(encoding="utf-8"), "default-codex-command", invocation_env
+        return (
+            command,
+            prompt_file.read_text(encoding="utf-8"),
+            "default-codex-command",
+            invocation_env,
+        )
 
     command_template = os.getenv("CLAUDE_CODE_CLI_CMD")
     if not command_template:
@@ -733,7 +904,11 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                 "or upload tagged Codex auth files via the control-plane auth API/UI."
             )
             _write_readme("# Blocked\n\n" + message + "\n")
-            _write_result(_blocked_result(spec, message, failure_reason_code="provider_quota_or_auth"))
+            _write_result(
+                _blocked_result(
+                    spec, message, failure_reason_code="provider_quota_or_auth"
+                )
+            )
             return 2
         idalib_process, ida_mcp_url = _start_idalib_mcp_if_available()
         _write_managed_codex_mcp_config(ida_url=ida_mcp_url)
@@ -766,14 +941,22 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
             "to a runnable command template using {prompt_file} and {run_dir}."
         )
         _write_readme("# Blocked\n\n" + error + "\n")
-        _write_result(_blocked_result(spec, error, failure_reason_code="backend_binary_missing"))
+        _write_result(
+            _blocked_result(spec, error, failure_reason_code="backend_binary_missing")
+        )
         _stop_background_process(idalib_process, "idalib-mcp")
         _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     if shutil.which(command[0]) is None:
         _write_readme("# Blocked\n\nConfigured backend binary not found.\n")
-        _write_result(_blocked_result(spec, f"Backend binary not found: {command[0]}", failure_reason_code="backend_binary_missing"))
+        _write_result(
+            _blocked_result(
+                spec,
+                f"Backend binary not found: {command[0]}",
+                failure_reason_code="backend_binary_missing",
+            )
+        )
         _stop_background_process(idalib_process, "idalib-mcp")
         _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
@@ -857,7 +1040,9 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                     _blocked_result(
                         spec,
                         message,
-                        failure_reason_code=_backend_failure_reason_code(backend, stdout_text, stderr_text),
+                        failure_reason_code=_backend_failure_reason_code(
+                            backend, stdout_text, stderr_text
+                        ),
                     )
                 )
 
@@ -926,7 +1111,11 @@ def _normalize_run_relative_path(value: Any) -> str:
 
 def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str, Any]:
     if not isinstance(raw_result, dict):
-        return _blocked_result(spec, "result.json did not contain an object", failure_reason_code="result_validation_failed")
+        return _blocked_result(
+            spec,
+            "result.json did not contain an object",
+            failure_reason_code="result_validation_failed",
+        )
 
     challenge_id = str(raw_result.get("challenge_id") or spec.get("challenge_id") or "")
     challenge_name = str(
@@ -1038,8 +1227,13 @@ def _normalize_result_payload(spec: dict[str, Any], raw_result: Any) -> dict[str
         "status": status,
         "stop_criterion_met": stop_criterion_met,
         "flag": flag,
-        "failure_reason_code": str(raw_result.get("failure_reason_code") or "none").strip().lower() or "none",
-        "failure_reason_detail": str(raw_result.get("failure_reason_detail") or details).strip(),
+        "failure_reason_code": str(raw_result.get("failure_reason_code") or "none")
+        .strip()
+        .lower()
+        or "none",
+        "failure_reason_detail": str(
+            raw_result.get("failure_reason_detail") or details
+        ).strip(),
         "flag_verification": {
             "method": method,
             "verified": verified,
@@ -1063,19 +1257,299 @@ def _ensure_contract(spec: dict[str, Any]) -> int:
         _write_readme("# Blocked\n\nMissing README.md from backend run.\n")
 
     if not result_path.exists():
-        _write_result(_blocked_result(spec, "Missing result.json from backend run", failure_reason_code="sandbox_output_contract_missing"))
+        _write_result(
+            _blocked_result(
+                spec,
+                "Missing result.json from backend run",
+                failure_reason_code="sandbox_output_contract_missing",
+            )
+        )
         return 3
 
     try:
         parsed = json.loads(result_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        _write_result(_blocked_result(spec, f"Invalid result.json: {exc}", failure_reason_code="result_validation_failed"))
+        _write_result(
+            _blocked_result(
+                spec,
+                f"Invalid result.json: {exc}",
+                failure_reason_code="result_validation_failed",
+            )
+        )
         return 3
 
     normalized = _normalize_result_payload(spec, parsed)
     _write_result(normalized)
 
     return 0
+
+
+def _run_backend_attempt(spec: dict[str, Any], backend: str, prompt: str) -> int:
+    if backend == "mock":
+        _mock_backend(spec)
+        return 0
+    return _run_external_backend(spec, backend=backend, prompt=prompt)
+
+
+def _prepare_attempt(attempt_number: int, prompt: str) -> Path:
+    attempt_dir = ATTEMPTS_DIR / f"{attempt_number:03d}"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+    return attempt_dir
+
+
+def _copy_optional_file(source: Path, target: Path) -> str | None:
+    if not source.exists() or not source.is_file():
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes())
+    return target.as_posix()
+
+
+def _snapshot_raw_result(attempt_dir: Path) -> None:
+    raw_result_path = attempt_dir / "result.raw.json"
+    top_level_result = RUN_DIR / "result.json"
+    if top_level_result.exists() and top_level_result.is_file():
+        raw_result_path.write_text(
+            top_level_result.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        return
+    _write_json(
+        raw_result_path,
+        {
+            "missing": True,
+            "message": "result.json was missing before contract normalization",
+        },
+    )
+
+
+def _build_deliverables_manifest(normalized_result: dict[str, Any]) -> dict[str, Any]:
+    manifest_items: list[dict[str, Any]] = []
+    for entry in normalized_result.get("deliverables", []):
+        if not isinstance(entry, dict):
+            continue
+        relative_path = str(entry.get("path") or "").strip()
+        if not relative_path:
+            continue
+        deliverable_path = RUN_DIR / relative_path
+        exists = deliverable_path.exists() and deliverable_path.is_file()
+        manifest_items.append(
+            {
+                "path": relative_path,
+                "type": str(entry.get("type") or "other"),
+                "how_to_run": str(entry.get("how_to_run") or "See README.md"),
+                "exists": exists,
+                "size_bytes": deliverable_path.stat().st_size if exists else None,
+            }
+        )
+    return {"items": manifest_items}
+
+
+def _snapshot_attempt_outputs(
+    attempt_dir: Path, normalized_result: dict[str, Any]
+) -> dict[str, str | None]:
+    normalized_result_path = attempt_dir / "result.normalized.json"
+    readme_snapshot_path = attempt_dir / "README.md"
+    deliverables_manifest_path = attempt_dir / "deliverables_manifest.json"
+
+    _copy_optional_file(RUN_DIR / "result.json", normalized_result_path)
+    _copy_optional_file(RUN_DIR / "README.md", readme_snapshot_path)
+    _write_json(
+        deliverables_manifest_path,
+        _build_deliverables_manifest(normalized_result),
+    )
+
+    last_message_path: str | None = None
+    for source in sorted(RUN_DIR.glob("*_last_message.txt")):
+        copied_path = _copy_optional_file(source, attempt_dir / source.name)
+        if last_message_path is None:
+            last_message_path = copied_path
+
+    return {
+        "snapshot_dir": attempt_dir.as_posix(),
+        "deliverables_manifest_path": deliverables_manifest_path.as_posix(),
+        "last_message_path": last_message_path,
+    }
+
+
+def _clear_top_level_attempt_outputs() -> None:
+    for path in (
+        RUN_DIR / "result.json",
+        RUN_DIR / "README.md",
+        RUN_DIR / "agent_prompt_filled.txt",
+    ):
+        if path.exists():
+            path.unlink()
+
+    for path in RUN_DIR.glob("*_last_message.txt"):
+        if path.exists():
+            path.unlink()
+
+
+def _decide_runner_loop_retry(
+    policy: dict[str, Any],
+    *,
+    attempt_number: int,
+    normalized_result: dict[str, Any],
+    backend_exit_code: int,
+    remaining_seconds: int,
+) -> dict[str, Any]:
+    status = str(normalized_result.get("status") or "blocked").strip().lower()
+    reason_code = (
+        str(normalized_result.get("failure_reason_code") or "none").strip().lower()
+        or "none"
+    )
+    target_status = str(policy.get("target_status") or "flag_found").strip().lower()
+    max_attempts = int(policy.get("max_attempts", 1) or 1)
+    min_seconds_remaining = int(policy.get("min_seconds_remaining", 0) or 0)
+    retry_on_statuses = [
+        str(entry).strip().lower() for entry in policy.get("retry_on_statuses", [])
+    ]
+    retry_on_reason_codes = [
+        str(entry).strip() for entry in policy.get("retry_on_reason_codes", [])
+    ]
+    continue_on_partial_success = bool(policy.get("continue_on_partial_success", True))
+
+    decision: dict[str, Any] = {
+        "attempt": attempt_number,
+        "status": status,
+        "failure_reason_code": reason_code,
+        "backend_exit_code": backend_exit_code,
+        "remaining_seconds_after_attempt": remaining_seconds,
+    }
+
+    if status == "flag_found" or status == target_status:
+        decision.update({"action": "stop", "reason": "target_status_reached"})
+        return decision
+
+    if status == "deliverable_produced":
+        if target_status == "flag_found" and continue_on_partial_success:
+            if attempt_number >= max_attempts:
+                decision.update({"action": "stop", "reason": "max_attempts_reached"})
+                return decision
+            if remaining_seconds < min_seconds_remaining:
+                decision.update(
+                    {"action": "stop", "reason": "min_seconds_remaining_reached"}
+                )
+                return decision
+            decision.update({"action": "continue", "reason": "partial_success_retry"})
+            return decision
+        decision.update({"action": "stop", "reason": "partial_success_accepted"})
+        return decision
+
+    if attempt_number >= max_attempts:
+        decision.update({"action": "stop", "reason": "max_attempts_reached"})
+        return decision
+
+    if remaining_seconds < min_seconds_remaining:
+        decision.update({"action": "stop", "reason": "min_seconds_remaining_reached"})
+        return decision
+
+    if status not in retry_on_statuses:
+        decision.update({"action": "stop", "reason": "non_retryable_status"})
+        return decision
+
+    if retry_on_reason_codes and reason_code not in retry_on_reason_codes:
+        decision.update({"action": "stop", "reason": "non_retryable_reason_code"})
+        return decision
+
+    decision.update({"action": "continue", "reason": "retryable_status"})
+    return decision
+
+
+def _write_runner_loop_state(state: dict[str, Any]) -> None:
+    _write_json(RUNNER_LOOP_STATE_PATH, state)
+
+
+def run_backend_attempt_loop(spec: dict[str, Any], backend: str) -> int:
+    policy = _load_runner_loop_policy(spec)
+    if not policy.get("enabled"):
+        prompt = _render_prompt(spec)
+        exit_code = _run_backend_attempt(spec, backend=backend, prompt=prompt)
+        contract_code = _ensure_contract(spec)
+        return exit_code if exit_code != 0 else contract_code
+
+    budgets = spec.get("budgets") if isinstance(spec.get("budgets"), dict) else {}
+    max_minutes = max(1, int(budgets.get("max_minutes", 30) or 30))
+    deadline = time.monotonic() + (max_minutes * 60)
+    max_attempts = int(policy.get("max_attempts", 3) or 3)
+
+    if ATTEMPTS_DIR.exists():
+        shutil.rmtree(ATTEMPTS_DIR, ignore_errors=True)
+    if RUNNER_LOOP_STATE_PATH.exists():
+        RUNNER_LOOP_STATE_PATH.unlink()
+    ATTEMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    loop_state: dict[str, Any] = {
+        "policy": policy,
+        "total_attempts": 0,
+        "attempts": [],
+        "final_attempt_number": None,
+        "stopped_because": None,
+    }
+    previous_attempt: dict[str, Any] | None = None
+    last_exit_code = 0
+    last_contract_code = 0
+
+    for attempt_number in range(1, max_attempts + 1):
+        if attempt_number > 1:
+            _clear_top_level_attempt_outputs()
+
+        runner_loop_context = _render_runner_loop_context(
+            spec,
+            attempt_number=attempt_number,
+            max_attempts=max_attempts,
+            previous_attempt=previous_attempt,
+        )
+        prompt = _render_prompt(spec, runner_loop_context=runner_loop_context)
+        attempt_dir = _prepare_attempt(attempt_number, prompt)
+
+        print(
+            f"[agent-runner] runner_loop attempt={attempt_number}/{max_attempts}",
+            flush=True,
+        )
+        exit_code = _run_backend_attempt(spec, backend=backend, prompt=prompt)
+        _snapshot_raw_result(attempt_dir)
+        contract_code = _ensure_contract(spec)
+        normalized_result = _read_json(RUN_DIR / "result.json")
+        snapshot_info = _snapshot_attempt_outputs(attempt_dir, normalized_result)
+        remaining_seconds = max(0, int(deadline - time.monotonic()))
+        decision = _decide_runner_loop_retry(
+            policy,
+            attempt_number=attempt_number,
+            normalized_result=normalized_result,
+            backend_exit_code=exit_code,
+            remaining_seconds=remaining_seconds,
+        )
+        decision.update(snapshot_info)
+        _write_json(attempt_dir / "decision.json", decision)
+
+        attempt_record = {
+            "attempt": attempt_number,
+            "status": decision["status"],
+            "failure_reason_code": decision["failure_reason_code"],
+            "backend_exit_code": exit_code,
+            "contract_exit_code": contract_code,
+            "decision": decision["action"],
+            "decision_reason": decision["reason"],
+            "remaining_seconds_after_attempt": remaining_seconds,
+            "snapshot_dir": snapshot_info["snapshot_dir"],
+            "deliverables_manifest_path": snapshot_info["deliverables_manifest_path"],
+            "last_message_path": snapshot_info["last_message_path"],
+        }
+        loop_state["attempts"].append(attempt_record)
+        loop_state["total_attempts"] = len(loop_state["attempts"])
+        loop_state["final_attempt_number"] = attempt_number
+        loop_state["stopped_because"] = decision["reason"]
+        _write_runner_loop_state(loop_state)
+
+        previous_attempt = attempt_record
+        last_exit_code = exit_code
+        last_contract_code = contract_code
+        if decision["action"] == "stop":
+            break
+
+    return last_exit_code if last_exit_code != 0 else last_contract_code
 
 
 def main() -> int:
@@ -1098,6 +1572,10 @@ def main() -> int:
         flush=True,
     )
     print(f"[agent-runner] stop_criteria={spec.get('stop_criteria', {})}", flush=True)
+    print(
+        f"[agent-runner] runner_loop_policy={spec.get('runner_loop_policy')}",
+        flush=True,
+    )
     print(f"[agent-runner] challenge_artifact_count={len(artifact_list)}", flush=True)
     if artifact_list:
         print(
@@ -1113,20 +1591,14 @@ def main() -> int:
             flush=True,
         )
 
-    prompt = _render_prompt(spec)
-
-    if backend == "mock":
-        _mock_backend(spec)
-        return _ensure_contract(spec)
-
-    if backend in {"codex", "claude_code"}:
-        exit_code = _run_external_backend(spec, backend=backend, prompt=prompt)
-        contract_code = _ensure_contract(spec)
-        return exit_code if exit_code != 0 else contract_code
+    if backend in {"mock", "codex", "claude_code"}:
+        return run_backend_attempt_loop(spec, backend=backend)
 
     message = f"Unsupported backend: {backend}"
     _write_readme("# Blocked\n\n" + message + "\n")
-    _write_result(_blocked_result(spec, message, failure_reason_code="backend_binary_missing"))
+    _write_result(
+        _blocked_result(spec, message, failure_reason_code="backend_binary_missing")
+    )
     return 2
 
 

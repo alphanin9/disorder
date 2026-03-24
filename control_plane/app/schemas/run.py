@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 ContinuationType = Literal["hint", "deliverable_fix", "strategy_change", "other"]
 RunFinalStatus = Literal["flag_found", "deliverable_produced", "blocked", "timeout"]
+RunnerLoopStatus = Literal["flag_found", "deliverable_produced", "blocked"]
 ContinuationOrigin = Literal["operator", "auto"]
 
 _ALLOWED_AGENT_INVOCATION_ENV_KEYS = {
@@ -73,7 +74,9 @@ class AgentInvocationConfig(BaseModel):
                 raise ValueError("env keys must be 128 characters or fewer")
             rendered = str(raw_val)
             if len(rendered) > 4096:
-                raise ValueError(f"env value for {key} must be 4096 characters or fewer")
+                raise ValueError(
+                    f"env value for {key} must be 4096 characters or fewer"
+                )
             normalized[key] = rendered
         return normalized
 
@@ -87,7 +90,9 @@ class AutoContinuationTarget(BaseModel):
 class AutoContinuationWhen(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    statuses: list[RunFinalStatus] = Field(default_factory=lambda: ["blocked", "timeout"])
+    statuses: list[RunFinalStatus] = Field(
+        default_factory=lambda: ["blocked", "timeout"]
+    )
     require_contract_match: bool = False
 
     @field_validator("statuses")
@@ -131,7 +136,9 @@ class AutoContinuationPolicy(BaseModel):
             if not rendered:
                 raise ValueError("on_blocked_reasons entries must be non-empty strings")
             if len(rendered) > 128:
-                raise ValueError("on_blocked_reasons entries must be 128 characters or fewer")
+                raise ValueError(
+                    "on_blocked_reasons entries must be 128 characters or fewer"
+                )
             if rendered not in normalized:
                 normalized.append(rendered)
         return normalized
@@ -145,7 +152,71 @@ class AutoContinuationPolicy(BaseModel):
         return normalized
 
 
-def validate_agent_invocation_backend(backend: str, invocation: AgentInvocationConfig | None) -> AgentInvocationConfig | None:
+class RunnerLoopPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    max_attempts: int = Field(default=3, ge=1, le=20)
+    target_status: RunnerLoopStatus = "flag_found"
+    retry_on_statuses: list[RunnerLoopStatus] = Field(
+        default_factory=lambda: ["blocked"]
+    )
+    retry_on_reason_codes: list[str] = Field(default_factory=list, max_length=32)
+    continue_on_partial_success: bool = True
+    min_seconds_remaining: int = Field(default=120, ge=0, le=24 * 60 * 60)
+    instruction_template: str = Field(
+        default=(
+            "Previous attempt ended with status {status} and reason "
+            "{failure_reason_code}. Reuse the existing workspace, inspect prior "
+            "attempt artifacts, and continue from the most promising point."
+        ),
+        min_length=1,
+        max_length=2000,
+    )
+
+    @field_validator("retry_on_statuses")
+    @classmethod
+    def validate_retry_on_statuses(
+        cls, value: list[RunnerLoopStatus]
+    ) -> list[RunnerLoopStatus]:
+        if not value:
+            raise ValueError("retry_on_statuses must contain at least one status")
+        deduped: list[RunnerLoopStatus] = []
+        for entry in value:
+            if entry not in deduped:
+                deduped.append(entry)
+        return deduped
+
+    @field_validator("retry_on_reason_codes")
+    @classmethod
+    def validate_retry_on_reason_codes(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for entry in value:
+            rendered = str(entry).strip()
+            if not rendered:
+                raise ValueError(
+                    "retry_on_reason_codes entries must be non-empty strings"
+                )
+            if len(rendered) > 128:
+                raise ValueError(
+                    "retry_on_reason_codes entries must be 128 characters or fewer"
+                )
+            if rendered not in normalized:
+                normalized.append(rendered)
+        return normalized
+
+    @field_validator("instruction_template")
+    @classmethod
+    def validate_instruction_template(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("instruction_template cannot be empty")
+        return normalized
+
+
+def validate_agent_invocation_backend(
+    backend: str, invocation: AgentInvocationConfig | None
+) -> AgentInvocationConfig | None:
     if invocation is None:
         return None
     allowed = _ALLOWED_AGENT_INVOCATION_ENV_KEYS.get(backend, set())
@@ -165,6 +236,7 @@ class RunCreateRequest(BaseModel):
     stop_criteria: dict | None = None
     agent_invocation: AgentInvocationConfig | None = None
     auto_continuation_policy: AutoContinuationPolicy | None = None
+    runner_loop_policy: RunnerLoopPolicy | None = None
     local_deploy_enabled: bool = False
 
     @model_validator(mode="after")
@@ -204,7 +276,9 @@ class RunContinueRequest(BaseModel):
             if "type" in entry and not isinstance(entry["type"], str):
                 raise ValueError(f"stop_criteria_override.{key}.type must be a string")
             if "config" in entry and not isinstance(entry["config"], dict):
-                raise ValueError(f"stop_criteria_override.{key}.config must be an object")
+                raise ValueError(
+                    f"stop_criteria_override.{key}.config must be an object"
+                )
         return value
 
 
@@ -214,8 +288,11 @@ class RunRead(BaseModel):
     backend: str
     budgets: dict
     stop_criteria: dict
-    agent_invocation: AgentInvocationConfig = Field(default_factory=AgentInvocationConfig)
+    agent_invocation: AgentInvocationConfig = Field(
+        default_factory=AgentInvocationConfig
+    )
     auto_continuation_policy: AutoContinuationPolicy | None = None
+    runner_loop_policy: RunnerLoopPolicy | None = None
     allowed_endpoints: list[dict]
     paths: dict
     local_deploy: dict

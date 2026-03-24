@@ -3,7 +3,14 @@ import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { continueRun, getChallenge, getRun, getRunLogs, getRunResult, terminateRun } from "@/api/endpoints";
+import {
+  continueRun,
+  getChallenge,
+  getRun,
+  getRunLogs,
+  getRunResult,
+  terminateRun,
+} from "@/api/endpoints";
 import type { RunContinueRequest, RunContinuationType } from "@/api/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +21,12 @@ import { formatDateTime, isRunFinal } from "@/features/runs/utils";
 const MAX_LOG_BUFFER_BYTES = 8 * 1024 * 1024;
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const MAX_TEXT_PREVIEW = 2000;
-const CONTINUATION_TYPE_OPTIONS: RunContinuationType[] = ["hint", "deliverable_fix", "strategy_change", "other"];
+const CONTINUATION_TYPE_OPTIONS: RunContinuationType[] = [
+  "hint",
+  "deliverable_fix",
+  "strategy_change",
+  "other",
+];
 
 type JsonObject = Record<string, unknown>;
 
@@ -77,7 +89,11 @@ function formatCodexJsonLine(line: string): string {
   }
 
   const itemValue = payload.item;
-  if ((eventType === "item.started" || eventType === "item.completed") && itemValue && typeof itemValue === "object") {
+  if (
+    (eventType === "item.started" || eventType === "item.completed") &&
+    itemValue &&
+    typeof itemValue === "object"
+  ) {
     const item = itemValue as JsonObject;
     const itemType = asString(item.type);
     if (itemType === "command_execution") {
@@ -115,14 +131,19 @@ export function RunPage() {
   const [logMode, setLogMode] = useState<"parsed" | "raw">("parsed");
   const [showContinuationForm, setShowContinuationForm] = useState(false);
   const [continuationMessage, setContinuationMessage] = useState("");
-  const [continuationType, setContinuationType] = useState<RunContinuationType>("hint");
+  const [continuationType, setContinuationType] =
+    useState<RunContinuationType>("hint");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState("");
   const [stopCriteriaOverride, setStopCriteriaOverride] = useState("");
   const [continuationModel, setContinuationModel] = useState("");
-  const [continuationInvocationJson, setContinuationInvocationJson] = useState("");
-  const [continuationAutoPolicyJson, setContinuationAutoPolicyJson] = useState("");
+  const [continuationInvocationJson, setContinuationInvocationJson] =
+    useState("");
+  const [continuationAutoPolicyJson, setContinuationAutoPolicyJson] =
+    useState("");
   const [reuseParentArtifacts, setReuseParentArtifacts] = useState(true);
-  const [continuationError, setContinuationError] = useState<string | null>(null);
+  const [continuationError, setContinuationError] = useState<string | null>(
+    null,
+  );
 
   useLayoutEffect(() => {
     setRawLogs("");
@@ -155,7 +176,8 @@ export function RunPage() {
     },
   });
   const continuationMutation = useMutation({
-    mutationFn: async (payload: RunContinueRequest) => continueRun(runId ?? "", payload),
+    mutationFn: async (payload: RunContinueRequest) =>
+      continueRun(runId ?? "", payload),
     onSuccess: (childRun) => {
       setShowContinuationForm(false);
       setContinuationMessage("");
@@ -275,19 +297,36 @@ export function RunPage() {
   });
   const parsedLogs = useMemo(() => renderParsedLogs(rawLogs), [rawLogs]);
   const logsToRender = logMode === "parsed" ? parsedLogs : rawLogs;
-  const challengeName = challengeQuery.data?.name ?? resultQuery.data?.challenge_name;
+  const challengeName =
+    challengeQuery.data?.name ?? resultQuery.data?.challenge_name;
   const ctfName = challengeQuery.data?.ctf_name;
-  const challengeDisplay = [challengeName, ctfName].filter((value): value is string => Boolean(value)).join(" / ");
+  const challengeDisplay = [challengeName, ctfName]
+    .filter((value): value is string => Boolean(value))
+    .join(" / ");
   const childRuns = runQuery.data?.child_runs ?? [];
   const parentRunId = runMeta?.parent_run_id;
+  const runnerLoopMetadata =
+    runQuery.data?.result?.finalization_metadata?.runner_loop;
   const details = useMemo(
     () => [
       ["Challenge / CTF", challengeDisplay || runMeta?.challenge_id || "-"],
       ["Backend", runMeta?.backend ?? "-"],
       ["Continuation depth", String(runMeta?.continuation_depth ?? 0)],
       ["Continuation origin", runMeta?.continuation_origin ?? "operator"],
-      ["Reasoning", String((runMeta?.budgets as Record<string, unknown> | undefined)?.reasoning_effort ?? "medium")],
-      ["Budget (minutes)", String((runMeta?.budgets as Record<string, unknown> | undefined)?.max_minutes ?? 30)],
+      [
+        "Reasoning",
+        String(
+          (runMeta?.budgets as Record<string, unknown> | undefined)
+            ?.reasoning_effort ?? "medium",
+        ),
+      ],
+      [
+        "Budget (minutes)",
+        String(
+          (runMeta?.budgets as Record<string, unknown> | undefined)
+            ?.max_minutes ?? 30,
+        ),
+      ],
       ["Model", runMeta?.agent_invocation?.model ?? "-"],
       ["Started", formatDateTime(runMeta?.started_at)],
       ["Finished", formatDateTime(runMeta?.finished_at)],
@@ -317,7 +356,9 @@ export function RunPage() {
                 className="h-8 px-3 text-xs text-warning hover:text-warning"
                 disabled={terminateMutation.isPending}
                 onClick={() => {
-                  if (!window.confirm(`Force terminate run ${runId.slice(0, 8)}?`)) {
+                  if (
+                    !window.confirm(`Force terminate run ${runId.slice(0, 8)}?`)
+                  ) {
                     return;
                   }
                   terminateMutation.mutate(runId);
@@ -343,13 +384,19 @@ export function RunPage() {
         </div>
 
         {runQuery.isLoading ? <p>Loading run state...</p> : null}
-        {runQuery.error ? <p className="text-danger">Failed to load run state.</p> : null}
-        {terminateMutation.isError ? <p className="mb-2 text-sm text-danger">Failed to terminate run.</p> : null}
+        {runQuery.error ? (
+          <p className="text-danger">Failed to load run state.</p>
+        ) : null}
+        {terminateMutation.isError ? (
+          <p className="mb-2 text-sm text-danger">Failed to terminate run.</p>
+        ) : null}
 
         <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           {details.map(([label, value]) => (
             <div key={label} className="rounded-md bg-surface-muted px-3 py-2">
-              <dt className="text-xs uppercase tracking-wide text-ink-subtle">{label}</dt>
+              <dt className="text-xs uppercase tracking-wide text-ink-subtle">
+                {label}
+              </dt>
               <dd className="font-medium text-ink">{value}</dd>
             </div>
           ))}
@@ -357,11 +404,16 @@ export function RunPage() {
 
         {parentRunId || childRuns.length > 0 ? (
           <div className="mt-4 space-y-2 rounded-md border border-line bg-surface-muted p-3 text-sm">
-            <p className="text-xs uppercase tracking-wide text-ink-subtle">Lineage</p>
+            <p className="text-xs uppercase tracking-wide text-ink-subtle">
+              Lineage
+            </p>
             {parentRunId ? (
               <p>
                 Parent run:{" "}
-                <Link className="font-semibold text-accent hover:underline" to={`/runs/${parentRunId}`}>
+                <Link
+                  className="font-semibold text-accent hover:underline"
+                  to={`/runs/${parentRunId}`}
+                >
                   {parentRunId.slice(0, 8)}
                 </Link>
               </p>
@@ -373,7 +425,11 @@ export function RunPage() {
               {childRuns.length === 0
                 ? "none"
                 : childRuns.map((childRun) => (
-                    <Link key={childRun.id} className="mr-2 font-semibold text-accent hover:underline" to={`/runs/${childRun.id}`}>
+                    <Link
+                      key={childRun.id}
+                      className="mr-2 font-semibold text-accent hover:underline"
+                      to={`/runs/${childRun.id}`}
+                    >
                       {childRun.id.slice(0, 8)}
                     </Link>
                   ))}
@@ -382,13 +438,51 @@ export function RunPage() {
         ) : null}
         {runMeta?.auto_continuation_policy ? (
           <div className="mt-4 rounded-md border border-line bg-surface-muted p-3 text-sm">
-            <p className="text-xs uppercase tracking-wide text-ink-subtle">Auto continuation</p>
+            <p className="text-xs uppercase tracking-wide text-ink-subtle">
+              Auto continuation
+            </p>
             <p className="mt-1">
-              Target: {runMeta.auto_continuation_policy.target?.final_status ?? "flag_found"} | Max depth: {runMeta.auto_continuation_policy.max_depth ?? "-"}
+              Target:{" "}
+              {runMeta.auto_continuation_policy.target?.final_status ??
+                "flag_found"}{" "}
+              | Max depth: {runMeta.auto_continuation_policy.max_depth ?? "-"}
             </p>
             <p className="text-xs text-ink-muted">
-              Statuses: {(runMeta.auto_continuation_policy.when?.statuses ?? []).join(", ") || "none"}
+              Statuses:{" "}
+              {(runMeta.auto_continuation_policy.when?.statuses ?? []).join(
+                ", ",
+              ) || "none"}
             </p>
+          </div>
+        ) : null}
+        {runMeta?.runner_loop_policy ? (
+          <div className="mt-4 rounded-md border border-line bg-surface-muted p-3 text-sm">
+            <p className="text-xs uppercase tracking-wide text-ink-subtle">
+              Runner loop
+            </p>
+            <p className="mt-1">
+              Target: {runMeta.runner_loop_policy.target_status ?? "flag_found"}{" "}
+              | Max attempts: {runMeta.runner_loop_policy.max_attempts ?? "-"}
+            </p>
+            <p className="text-xs text-ink-muted">
+              Retry statuses:{" "}
+              {(runMeta.runner_loop_policy.retry_on_statuses ?? []).join(
+                ", ",
+              ) || "none"}
+            </p>
+            <p className="text-xs text-ink-muted">
+              Retry reasons:{" "}
+              {(runMeta.runner_loop_policy.retry_on_reason_codes ?? []).join(
+                ", ",
+              ) || "any"}
+            </p>
+            {runnerLoopMetadata ? (
+              <p className="mt-2 text-xs text-ink-muted">
+                Attempts: {runnerLoopMetadata.total_attempts ?? "-"} | Final
+                attempt: {runnerLoopMetadata.final_attempt_number ?? "-"} | Stop
+                reason: {runnerLoopMetadata.stopped_because ?? "-"}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -414,7 +508,9 @@ export function RunPage() {
                   className={inputCompactClasses}
                   value={continuationType}
                   onChange={(event) => {
-                    setContinuationType(event.target.value as RunContinuationType);
+                    setContinuationType(
+                      event.target.value as RunContinuationType,
+                    );
                   }}
                 >
                   {CONTINUATION_TYPE_OPTIONS.map((value) => (
@@ -475,7 +571,9 @@ export function RunPage() {
               </label>
             </div>
             <label className="block space-y-1 text-xs text-ink-muted">
-              <span>Auto continuation policy override (JSON object, optional)</span>
+              <span>
+                Auto continuation policy override (JSON object, optional)
+              </span>
               <textarea
                 className={`${inputCompactClasses} min-h-24 font-mono text-xs`}
                 value={continuationAutoPolicyJson}
@@ -495,8 +593,14 @@ export function RunPage() {
               />
               Reuse parent artifacts/context
             </label>
-            {continuationError ? <p className="text-xs text-danger">{continuationError}</p> : null}
-            {continuationMutation.isError ? <p className="text-xs text-danger">Failed to create continuation run.</p> : null}
+            {continuationError ? (
+              <p className="text-xs text-danger">{continuationError}</p>
+            ) : null}
+            {continuationMutation.isError ? (
+              <p className="text-xs text-danger">
+                Failed to create continuation run.
+              </p>
+            ) : null}
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -517,39 +621,63 @@ export function RunPage() {
                   if (rawStop) {
                     try {
                       const parsed = JSON.parse(rawStop);
-                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-                        setContinuationError("Stop criteria override must be a JSON object.");
+                      if (
+                        !parsed ||
+                        typeof parsed !== "object" ||
+                        Array.isArray(parsed)
+                      ) {
+                        setContinuationError(
+                          "Stop criteria override must be a JSON object.",
+                        );
                         return;
                       }
                       parsedStopCriteria = parsed as Record<string, unknown>;
                     } catch {
-                      setContinuationError("Stop criteria override is not valid JSON.");
+                      setContinuationError(
+                        "Stop criteria override is not valid JSON.",
+                      );
                       return;
                     }
                   }
                   if (rawInvocation) {
                     try {
                       const parsed = JSON.parse(rawInvocation);
-                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-                        setContinuationError("Agent invocation override must be a JSON object.");
+                      if (
+                        !parsed ||
+                        typeof parsed !== "object" ||
+                        Array.isArray(parsed)
+                      ) {
+                        setContinuationError(
+                          "Agent invocation override must be a JSON object.",
+                        );
                         return;
                       }
                       parsedInvocation = parsed as Record<string, unknown>;
                     } catch {
-                      setContinuationError("Agent invocation override is not valid JSON.");
+                      setContinuationError(
+                        "Agent invocation override is not valid JSON.",
+                      );
                       return;
                     }
                   }
                   if (rawAutoPolicy) {
                     try {
                       const parsed = JSON.parse(rawAutoPolicy);
-                      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-                        setContinuationError("Auto continuation policy override must be a JSON object.");
+                      if (
+                        !parsed ||
+                        typeof parsed !== "object" ||
+                        Array.isArray(parsed)
+                      ) {
+                        setContinuationError(
+                          "Auto continuation policy override must be a JSON object.",
+                        );
                         return;
                       }
                       parsedAutoPolicy = parsed as Record<string, unknown>;
                     } catch {
-                      setContinuationError("Auto continuation policy override is not valid JSON.");
+                      setContinuationError(
+                        "Auto continuation policy override is not valid JSON.",
+                      );
                       return;
                     }
                   }
@@ -562,7 +690,9 @@ export function RunPage() {
                   if (timeLimitSeconds.trim()) {
                     const parsed = Number.parseInt(timeLimitSeconds, 10);
                     if (Number.isNaN(parsed) || parsed < 60) {
-                      setContinuationError("Time limit override must be at least 60 seconds.");
+                      setContinuationError(
+                        "Time limit override must be at least 60 seconds.",
+                      );
                       return;
                     }
                     payload.time_limit_seconds = parsed;
@@ -578,7 +708,8 @@ export function RunPage() {
                     };
                   }
                   if (parsedAutoPolicy) {
-                    payload.auto_continuation_policy_override = parsedAutoPolicy;
+                    payload.auto_continuation_policy_override =
+                      parsedAutoPolicy;
                   }
 
                   setContinuationError(null);
@@ -635,17 +766,25 @@ export function RunPage() {
 
       <Card>
         <h3 className="mb-2 text-lg font-semibold">Final Result</h3>
-        {!terminal ? <p className="text-sm text-ink-muted">Result will appear when run reaches a terminal state.</p> : null}
+        {!terminal ? (
+          <p className="text-sm text-ink-muted">
+            Result will appear when run reaches a terminal state.
+          </p>
+        ) : null}
         {resultQuery.isLoading ? <p>Loading result...</p> : null}
-        {resultQuery.error ? <p className="text-danger">Failed to load result payload.</p> : null}
+        {resultQuery.error ? (
+          <p className="text-danger">Failed to load result payload.</p>
+        ) : null}
         {resultQuery.data ? (
           <div className="space-y-3 text-sm">
             <div className="rounded-md bg-surface-muted px-3 py-2">
               <p>
-                <span className="font-semibold">Status:</span> {resultQuery.data.status}
+                <span className="font-semibold">Status:</span>{" "}
+                {resultQuery.data.status}
               </p>
               <p>
-                <span className="font-semibold">Stop criterion:</span> {resultQuery.data.stop_criterion_met}
+                <span className="font-semibold">Stop criterion:</span>{" "}
+                {resultQuery.data.stop_criterion_met}
               </p>
             </div>
             <pre className="max-h-[28rem] overflow-auto rounded-md bg-surface-strong p-3 text-xs text-ink">
