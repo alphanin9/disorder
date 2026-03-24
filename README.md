@@ -1,5 +1,5 @@
 # Disorder Jeopardy CTF Harness
-
+[![AI Slop Inside](https://sladge.net/badge.svg)](https://sladge.net)
 ![image](resources/readme_logo.gif)
 
 Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolated sandboxes.
