@@ -176,7 +176,6 @@ def _build_runner_loop_policy_payload(
             retry_on_statuses,
             min_seconds_remaining,
             instruction_template,
-            policy_file,
         )
     ) or bool(reason_codes)
 
