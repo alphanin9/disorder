@@ -15,6 +15,13 @@ const server = setupServer(
         backend: "mock",
         budgets: { max_minutes: 30, max_commands: null },
         stop_criteria: {},
+        runner_loop_policy: {
+          enabled: true,
+          max_attempts: 3,
+          target_status: "flag_found",
+          retry_on_statuses: ["blocked"],
+          retry_on_reason_codes: ["provider_quota_or_auth"],
+        },
         allowed_endpoints: [],
         paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
         local_deploy: { enabled: false, network: null, endpoints: [] },
@@ -27,7 +34,21 @@ const server = setupServer(
         continuation_input: null,
         continuation_type: null,
       },
-      result: null,
+      result: {
+        run_id: params.run_id,
+        status: "deliverable_produced",
+        result_json_object_key: "runs/demo/result.json",
+        logs_object_key: "runs/demo/logs.txt",
+        finalization_metadata: {
+          runner_loop: {
+            total_attempts: 2,
+            final_attempt_number: 2,
+            stopped_because: "partial_success_accepted",
+          },
+        },
+        started_at: "2026-02-14T22:00:00Z",
+        finished_at: "2026-02-14T22:01:00Z",
+      },
       child_runs: [
         {
           id: "f3325e1f-0a77-42fc-a8e0-607fcfcb00f2",
@@ -51,7 +72,13 @@ const server = setupServer(
     }),
   ),
   http.get("http://localhost/api/runs/:run_id/logs", () =>
-    HttpResponse.json({ run_id: "r", offset: 0, next_offset: 0, eof: true, logs: "" }),
+    HttpResponse.json({
+      run_id: "r",
+      offset: 0,
+      next_offset: 0,
+      eof: true,
+      logs: "",
+    }),
   ),
   http.get("http://localhost/api/runs/:run_id/result", () =>
     HttpResponse.json({
@@ -60,7 +87,13 @@ const server = setupServer(
       status: "deliverable_produced",
       stop_criterion_met: "secondary",
       flag_verification: { method: "none", verified: false, details: "mock" },
-      deliverables: [{ path: "solve.py", type: "solve_script", how_to_run: "python solve.py" }],
+      deliverables: [
+        {
+          path: "solve.py",
+          type: "solve_script",
+          how_to_run: "python solve.py",
+        },
+      ],
       repro_steps: ["run solve"],
       key_findings: ["mock"],
       evidence: [{ kind: "file", ref: "solve.py", summary: "present" }],
@@ -104,7 +137,9 @@ describe("RunPage", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}>
+        <MemoryRouter
+          initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}
+        >
           <Routes>
             <Route path="/runs/:runId" element={<RunPage />} />
           </Routes>
@@ -115,8 +150,16 @@ describe("RunPage", () => {
     expect(await screen.findByText(/Run 7d2d5201/i)).toBeInTheDocument();
     expect(await screen.findByText("Challenge / CTF")).toBeInTheDocument();
     expect(await screen.findByText("Warmup / Demo CTF")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /Continue run/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Continue run/i }),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/Child runs/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Runner loop/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /Attempts: 2 \| Final attempt: 2 \| Stop reason: partial_success_accepted/i,
+      ),
+    ).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("secondary")).toBeInTheDocument();
     });
@@ -133,7 +176,10 @@ describe("RunPage", () => {
             budgets: { max_minutes: 30, max_commands: null },
             stop_criteria: {},
             allowed_endpoints: [],
-            paths: { chal_mount: "/workspace/chal", run_mount: "/workspace/run" },
+            paths: {
+              chal_mount: "/workspace/chal",
+              run_mount: "/workspace/run",
+            },
             local_deploy: { enabled: false, network: null, endpoints: [] },
             status: "running",
             error_message: null,
@@ -161,7 +207,9 @@ describe("RunPage", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}>
+        <MemoryRouter
+          initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}
+        >
           <Routes>
             <Route path="/runs/:runId" element={<RunPage />} />
           </Routes>
@@ -171,7 +219,9 @@ describe("RunPage", () => {
 
     expect(await screen.findByText(/Run 7d2d5201/i)).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /Continue run/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Continue run/i }),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -179,19 +229,22 @@ describe("RunPage", () => {
     const logRequests: Array<{ runId: string; offset: number }> = [];
 
     server.use(
-      http.get("http://localhost/api/runs/:run_id/logs", ({ params, request }) => {
-        const url = new URL(request.url);
-        const offset = Number(url.searchParams.get("offset") ?? "0");
-        const runId = String(params.run_id);
-        logRequests.push({ runId, offset });
-        return HttpResponse.json({
-          run_id: runId,
-          offset,
-          next_offset: runId.startsWith("7d2d") ? 5 : 0,
-          eof: true,
-          logs: "",
-        });
-      }),
+      http.get(
+        "http://localhost/api/runs/:run_id/logs",
+        ({ params, request }) => {
+          const url = new URL(request.url);
+          const offset = Number(url.searchParams.get("offset") ?? "0");
+          const runId = String(params.run_id);
+          logRequests.push({ runId, offset });
+          return HttpResponse.json({
+            run_id: runId,
+            offset,
+            next_offset: runId.startsWith("7d2d") ? 5 : 0,
+            eof: true,
+            logs: "",
+          });
+        },
+      ),
     );
 
     const queryClient = new QueryClient({
@@ -207,7 +260,12 @@ describe("RunPage", () => {
       const navigate = useNavigate();
       return (
         <>
-          <button type="button" onClick={() => navigate("/runs/f3325e1f-0a77-42fc-a8e0-607fcfcb00f2")}>
+          <button
+            type="button"
+            onClick={() =>
+              navigate("/runs/f3325e1f-0a77-42fc-a8e0-607fcfcb00f2")
+            }
+          >
             Navigate
           </button>
           <Routes>
@@ -219,7 +277,9 @@ describe("RunPage", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}>
+        <MemoryRouter
+          initialEntries={["/runs/7d2d5201-08e5-4450-bbe3-0d27d2916659"]}
+        >
           <TestShell />
         </MemoryRouter>
       </QueryClientProvider>,

@@ -18,6 +18,7 @@ from control_plane.app.schemas.run import (
     AutoContinuationPolicy,
     RunContinueRequest,
     RunCreateRequest,
+    RunnerLoopPolicy,
     validate_agent_invocation_backend,
 )
 
@@ -34,7 +35,11 @@ class RunContinuationError(ValueError):
 
 
 def build_default_stop_criteria(challenge: ChallengeManifest) -> dict:
-    regex = challenge.flag_regex or (challenge.ctf.default_flag_regex if challenge.ctf else None) or r"flag\{.*?\}"
+    regex = (
+        challenge.flag_regex
+        or (challenge.ctf.default_flag_regex if challenge.ctf else None)
+        or r"flag\{.*?\}"
+    )
     return {
         "primary": {"type": "FLAG_FOUND", "config": {"regex": regex}},
         "secondary": {
@@ -66,13 +71,17 @@ def _normalize_agent_invocation(config: AgentInvocationConfig | dict | None) -> 
     if isinstance(config, AgentInvocationConfig):
         payload = config.model_dump(mode="json", exclude_none=True)
     else:
-        payload = AgentInvocationConfig.model_validate(config).model_dump(mode="json", exclude_none=True)
+        payload = AgentInvocationConfig.model_validate(config).model_dump(
+            mode="json", exclude_none=True
+        )
     payload.setdefault("extra_args", [])
     payload.setdefault("env", {})
     return payload
 
 
-def _merge_agent_invocation(parent: dict | None, override: AgentInvocationConfig | None) -> dict:
+def _merge_agent_invocation(
+    parent: dict | None, override: AgentInvocationConfig | None
+) -> dict:
     merged = _normalize_agent_invocation(parent)
     if override is None:
         return merged
@@ -90,7 +99,9 @@ def _merge_agent_invocation(parent: dict | None, override: AgentInvocationConfig
     return merged
 
 
-def _normalize_auto_continuation_policy(policy: AutoContinuationPolicy | dict | None) -> dict | None:
+def _normalize_auto_continuation_policy(
+    policy: AutoContinuationPolicy | dict | None,
+) -> dict | None:
     if policy is None:
         return None
     if isinstance(policy, AutoContinuationPolicy):
@@ -98,12 +109,24 @@ def _normalize_auto_continuation_policy(policy: AutoContinuationPolicy | dict | 
     return AutoContinuationPolicy.model_validate(policy).model_dump(mode="json")
 
 
+def _normalize_runner_loop_policy(
+    policy: RunnerLoopPolicy | dict | None,
+) -> dict | None:
+    if policy is None:
+        return None
+    if isinstance(policy, RunnerLoopPolicy):
+        return policy.model_dump(mode="json")
+    return RunnerLoopPolicy.model_validate(policy).model_dump(mode="json")
+
+
 def _resolve_run_budgets(request: RunCreateRequest) -> dict:
     budgets = {"max_minutes": 30, "max_commands": None}
     if request.budgets is not None:
         budgets = {
             "max_minutes": int(request.budgets.max_minutes),
-            "max_commands": int(request.budgets.max_commands) if request.budgets.max_commands is not None else None,
+            "max_commands": int(request.budgets.max_commands)
+            if request.budgets.max_commands is not None
+            else None,
         }
     budgets["reasoning_effort"] = request.reasoning_effort
     return budgets
@@ -115,7 +138,9 @@ def create_run(db: Session, request: RunCreateRequest) -> Run:
         raise ValueError("Challenge not found")
 
     validate_agent_invocation_backend(request.backend, request.agent_invocation)
-    stop_criteria = merge_stop_criteria(build_default_stop_criteria(challenge), request.stop_criteria)
+    stop_criteria = merge_stop_criteria(
+        build_default_stop_criteria(challenge), request.stop_criteria
+    )
     run = Run(
         challenge_id=challenge.id,
         parent_run_id=None,
@@ -127,10 +152,17 @@ def create_run(db: Session, request: RunCreateRequest) -> Run:
         budgets=_resolve_run_budgets(request),
         stop_criteria=stop_criteria,
         agent_invocation=_normalize_agent_invocation(request.agent_invocation),
-        auto_continuation_policy=_normalize_auto_continuation_policy(request.auto_continuation_policy),
+        auto_continuation_policy=_normalize_auto_continuation_policy(
+            request.auto_continuation_policy
+        ),
+        runner_loop_policy=_normalize_runner_loop_policy(request.runner_loop_policy),
         allowed_endpoints=challenge.remote_endpoints,
         paths={"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"},
-        local_deploy={"enabled": request.local_deploy_enabled, "network": None, "endpoints": []},
+        local_deploy={
+            "enabled": request.local_deploy_enabled,
+            "network": None,
+            "endpoints": [],
+        },
         status="queued",
         started_at=datetime.now(timezone.utc),
     )
@@ -140,7 +172,9 @@ def create_run(db: Session, request: RunCreateRequest) -> Run:
     return run
 
 
-def _resolve_continuation_budgets(parent_run: Run, time_limit_seconds: int | None) -> dict:
+def _resolve_continuation_budgets(
+    parent_run: Run, time_limit_seconds: int | None
+) -> dict:
     budgets = dict(parent_run.budgets or {})
     if time_limit_seconds is not None:
         budgets["max_minutes"] = max(1, ceil(time_limit_seconds / 60))
@@ -157,7 +191,11 @@ def _parent_result_fallback(parent_run: Run) -> dict[str, Any]:
         "challenge_name": "",
         "status": "blocked",
         "stop_criterion_met": "none",
-        "flag_verification": {"method": "none", "verified": False, "details": "Parent result unavailable"},
+        "flag_verification": {
+            "method": "none",
+            "verified": False,
+            "details": "Parent result unavailable",
+        },
         "deliverables": [],
         "repro_steps": [],
         "key_findings": [],
@@ -166,7 +204,12 @@ def _parent_result_fallback(parent_run: Run) -> dict[str, Any]:
     }
 
 
-def _read_parent_result_payload(parent_run: Run, parent_result: RunResult | None, settings: Settings, blob_store: Any) -> dict[str, Any]:
+def _read_parent_result_payload(
+    parent_run: Run,
+    parent_result: RunResult | None,
+    settings: Settings,
+    blob_store: Any,
+) -> dict[str, Any]:
     local_result = settings.runs_dir / str(parent_run.id) / "run" / "result.json"
     if local_result.exists() and local_result.is_file():
         try:
@@ -176,7 +219,11 @@ def _read_parent_result_payload(parent_run: Run, parent_result: RunResult | None
 
     if parent_result is not None:
         try:
-            return json.loads(blob_store.get_bytes(parent_result.result_json_object_key).decode("utf-8"))
+            return json.loads(
+                blob_store.get_bytes(parent_result.result_json_object_key).decode(
+                    "utf-8"
+                )
+            )
         except Exception:
             pass
 
@@ -229,8 +276,12 @@ def _copy_parent_deliverables_into_bundle(
 
     total_bytes = 0
     max_items = int(getattr(settings, "max_continuation_deliverables", 16))
-    max_item_bytes = int(getattr(settings, "max_continuation_deliverable_bytes", 5 * 1024 * 1024))
-    max_total_bytes = int(getattr(settings, "max_continuation_total_bytes", 20 * 1024 * 1024))
+    max_item_bytes = int(
+        getattr(settings, "max_continuation_deliverable_bytes", 5 * 1024 * 1024)
+    )
+    max_total_bytes = int(
+        getattr(settings, "max_continuation_total_bytes", 20 * 1024 * 1024)
+    )
 
     for index, deliverable in enumerate(validated_result.deliverables):
         copied_bundle_path = None
@@ -245,15 +296,25 @@ def _copy_parent_deliverables_into_bundle(
             if relative_path is None:
                 error = "deliverable path is not a safe relative file path"
             else:
-                local_source = settings.runs_dir / str(parent_run.id) / "run" / Path(*relative_path.parts)
+                local_source = (
+                    settings.runs_dir
+                    / str(parent_run.id)
+                    / "run"
+                    / Path(*relative_path.parts)
+                )
                 target_path = deliverables_root / Path(*relative_path.parts)
                 data: bytes | None = None
 
                 if local_source.exists():
                     try:
                         resolved_local = local_source.resolve(strict=True)
-                        parent_run_dir = (settings.runs_dir / str(parent_run.id) / "run").resolve(strict=True)
-                        if parent_run_dir not in resolved_local.parents and resolved_local != parent_run_dir:
+                        parent_run_dir = (
+                            settings.runs_dir / str(parent_run.id) / "run"
+                        ).resolve(strict=True)
+                        if (
+                            parent_run_dir not in resolved_local.parents
+                            and resolved_local != parent_run_dir
+                        ):
                             error = "deliverable path escapes parent run directory"
                         elif local_source.is_symlink():
                             error = "deliverable symlinks are not supported"
@@ -266,7 +327,9 @@ def _copy_parent_deliverables_into_bundle(
                         error = str(exc)
 
                 if data is None and error is None:
-                    object_key = f"runs/{parent_run.id}/deliverables/{relative_path.as_posix()}"
+                    object_key = (
+                        f"runs/{parent_run.id}/deliverables/{relative_path.as_posix()}"
+                    )
                     try:
                         data = blob_store.get_bytes(object_key)
                         source = "blob"
@@ -282,7 +345,9 @@ def _copy_parent_deliverables_into_bundle(
                     else:
                         target_path.parent.mkdir(parents=True, exist_ok=True)
                         target_path.write_bytes(data)
-                        copied_bundle_path = f"{DELIVERABLES_DIR_NAME}/{relative_path.as_posix()}"
+                        copied_bundle_path = (
+                            f"{DELIVERABLES_DIR_NAME}/{relative_path.as_posix()}"
+                        )
                         total_bytes += size
                         status = "copied"
 
@@ -298,7 +363,9 @@ def _copy_parent_deliverables_into_bundle(
             }
         )
 
-    manifest["copied_count"] = sum(1 for item in manifest["items"] if item["status"] == "copied")
+    manifest["copied_count"] = sum(
+        1 for item in manifest["items"] if item["status"] == "copied"
+    )
     manifest["total_bytes"] = total_bytes
     return manifest
 
@@ -338,7 +405,9 @@ def create_continuation_context_bundle(
         "origin": child_run.continuation_origin,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    (context_dir / "continuation_request.json").write_text(json.dumps(request_payload, indent=2), encoding="utf-8")
+    (context_dir / "continuation_request.json").write_text(
+        json.dumps(request_payload, indent=2), encoding="utf-8"
+    )
     deliverables_manifest = _copy_parent_deliverables_into_bundle(
         parent_run=parent_run,
         parent_result_payload=parent_result_payload,
@@ -371,7 +440,9 @@ def create_continuation_run(
         raise RunContinuationError("Parent run not found", status_code=404)
 
     if parent_run.status not in TERMINAL_RUN_STATUSES:
-        raise RunContinuationError("Parent run must be in terminal status", status_code=409)
+        raise RunContinuationError(
+            "Parent run must be in terminal status", status_code=409
+        )
 
     if parent_run.continuation_depth >= settings.max_continuation_depth:
         raise RunContinuationError(
@@ -388,19 +459,32 @@ def create_continuation_run(
 
     challenge = db.get(ChallengeManifest, parent_run.challenge_id)
     if challenge is None:
-        raise RunContinuationError("Challenge not found for parent run", status_code=404)
+        raise RunContinuationError(
+            "Challenge not found for parent run", status_code=404
+        )
 
     try:
-        base_agent_invocation = parent_run.agent_invocation if inherit_parent_agent_invocation else {}
-        merged_agent_invocation = _merge_agent_invocation(base_agent_invocation, request.agent_invocation_override)
-        validate_agent_invocation_backend(parent_run.backend, AgentInvocationConfig.model_validate(merged_agent_invocation))
+        base_agent_invocation = (
+            parent_run.agent_invocation if inherit_parent_agent_invocation else {}
+        )
+        merged_agent_invocation = _merge_agent_invocation(
+            base_agent_invocation, request.agent_invocation_override
+        )
+        validate_agent_invocation_backend(
+            parent_run.backend,
+            AgentInvocationConfig.model_validate(merged_agent_invocation),
+        )
     except ValueError as exc:
         raise RunContinuationError(str(exc), status_code=422) from exc
 
     if "auto_continuation_policy_override" in request.model_fields_set:
-        effective_policy = _normalize_auto_continuation_policy(request.auto_continuation_policy_override)
+        effective_policy = _normalize_auto_continuation_policy(
+            request.auto_continuation_policy_override
+        )
     else:
-        effective_policy = _normalize_auto_continuation_policy(parent_run.auto_continuation_policy)
+        effective_policy = _normalize_auto_continuation_policy(
+            parent_run.auto_continuation_policy
+        )
 
     local_deploy_enabled = bool((parent_run.local_deploy or {}).get("enabled", False))
     child_paths = {"chal_mount": "/workspace/chal", "run_mount": "/workspace/run"}
@@ -416,12 +500,19 @@ def create_continuation_run(
         continuation_origin=continuation_origin,
         backend=parent_run.backend,
         budgets=_resolve_continuation_budgets(parent_run, request.time_limit_seconds),
-        stop_criteria=merge_stop_criteria(dict(parent_run.stop_criteria or {}), request.stop_criteria_override),
+        stop_criteria=merge_stop_criteria(
+            dict(parent_run.stop_criteria or {}), request.stop_criteria_override
+        ),
         agent_invocation=merged_agent_invocation,
         auto_continuation_policy=effective_policy,
+        runner_loop_policy=None,
         allowed_endpoints=challenge.remote_endpoints,
         paths=child_paths,
-        local_deploy={"enabled": local_deploy_enabled, "network": None, "endpoints": []},
+        local_deploy={
+            "enabled": local_deploy_enabled,
+            "network": None,
+            "endpoints": [],
+        },
         status="queued",
         started_at=datetime.now(timezone.utc),
     )
@@ -466,5 +557,9 @@ def list_runs(
 
 
 def list_child_runs(db: Session, parent_run_id: UUID) -> list[Run]:
-    statement = select(Run).where(Run.parent_run_id == parent_run_id).order_by(Run.started_at.desc())
+    statement = (
+        select(Run)
+        .where(Run.parent_run_id == parent_run_id)
+        .order_by(Run.started_at.desc())
+    )
     return db.execute(statement).scalars().all()

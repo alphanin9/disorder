@@ -16,6 +16,7 @@
 2. Manifests are upserted into Postgres; files are uploaded to MinIO.
 3. `POST /runs` stores RunSpec-like fields in `runs`, then launches Docker orchestration thread.
    - `POST /runs/{run_id}/continue` creates a child run linked to the terminal parent run and stores operator continuation input plus optional invocation/policy overrides.
+   - Runs may optionally carry a `runner_loop_policy` for bounded same-run retries inside the sandbox container.
 4. Orchestrator hydrates artifacts into `runs/<run_id>/chal`, writes `runs/<run_id>/run/spec.json`, starts sandbox.
    - Challenge artifacts are mounted read-only at `/workspace/chal`.
    - Run workspace is mounted read-write at `/workspace/run`.
@@ -34,11 +35,14 @@
    - If `SANDBOX_GPU_PASSTHROUGH` is configured, orchestrator requests all GPUs visible to the Docker daemon for the sandbox container.
    - Docker daemon info can provide best-effort support signals such as registered runtimes or CDI spec directories, but it does not expose an authoritative GPU inventory or free-resource view.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.
+   - When `runner_loop_policy.enabled=true`, the sandbox may invoke the backend multiple times against the same writable workspace before finalizing.
+   - Attempt snapshots are stored under `runs/<run_id>/run/attempts/<n>/` and summarized in `runs/<run_id>/run/runner_loop_state.json`.
 6. Control plane validates result, evaluates stop criteria, archives outputs to MinIO, updates `run_results` + run status.
    - `run_results.finalization_metadata` captures normalized completion metadata (`contract_valid`, sandbox exit code, normalized failure reason code, timeout flag, stop-eval status transition).
+   - If present, `runner_loop_state.json` is ingested into `run_results.finalization_metadata.runner_loop`.
    - Auto-continuation policy evaluation runs after terminal result persistence; matching runs queue a child continuation linked to the immediate parent.
 7. Frontend polls run status/log endpoints and renders auditable results for operators.
-   - Run detail includes lineage view (parent run + child runs), effective auto-continuation policy, and continuation creation workflow.
+   - Run detail includes lineage view (parent run + child runs), effective auto-continuation policy, runner-loop policy/attempt summary, and continuation creation workflow.
 
 ## Extensibility for Kubernetes
 - Core run models (`runs`, `run_results`, RunSpec payload) are runner-agnostic.

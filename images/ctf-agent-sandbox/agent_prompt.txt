@@ -20,6 +20,9 @@ Requested reasoning effort:
 Known challenge/local endpoints:
 {allowed_endpoints}
 
+Same-run retry context:
+{runner_loop_context}
+
 Continuation context:
 {continuation_context}
 

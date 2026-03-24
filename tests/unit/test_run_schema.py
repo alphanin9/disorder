@@ -45,6 +45,45 @@ def test_run_create_accepts_agent_invocation_and_auto_continuation_policy() -> N
     assert payload.auto_continuation_policy.max_depth == 4
 
 
+def test_run_create_accepts_runner_loop_policy() -> None:
+    payload = RunCreateRequest.model_validate(
+        {
+            "challenge_id": "11111111-1111-1111-1111-111111111111",
+            "backend": "codex",
+            "runner_loop_policy": {
+                "enabled": True,
+                "max_attempts": 4,
+                "target_status": "flag_found",
+                "retry_on_statuses": ["blocked"],
+                "retry_on_reason_codes": ["provider_quota_or_auth"],
+                "continue_on_partial_success": True,
+                "min_seconds_remaining": 90,
+            },
+        }
+    )
+
+    assert payload.runner_loop_policy is not None
+    assert payload.runner_loop_policy.enabled is True
+    assert payload.runner_loop_policy.max_attempts == 4
+    assert payload.runner_loop_policy.retry_on_reason_codes == [
+        "provider_quota_or_auth"
+    ]
+
+
+def test_run_create_rejects_runner_loop_timeout_target() -> None:
+    with pytest.raises(ValidationError):
+        RunCreateRequest.model_validate(
+            {
+                "challenge_id": "11111111-1111-1111-1111-111111111111",
+                "backend": "codex",
+                "runner_loop_policy": {
+                    "enabled": True,
+                    "target_status": "timeout",
+                },
+            }
+        )
+
+
 def test_run_create_rejects_agent_invocation_env_for_wrong_backend() -> None:
     with pytest.raises(ValidationError):
         RunCreateRequest.model_validate(

@@ -33,6 +33,8 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
    - `python -m cli run --challenge-id <uuid> --backend mock`
    - Model override example:
      - `python -m cli run --challenge-id <uuid> --backend codex --model gpt-5.4`
+   - Same-run retry example:
+     - `python -m cli run --challenge-id <uuid> --backend codex --enable-runner-loop --runner-loop-target-status flag_found --runner-loop-max-attempts 3 --runner-loop-retry-on blocked --runner-loop-reason provider_quota_or_auth`
    - Auto-continuation example:
      - `python -m cli run --challenge-id <uuid> --backend codex --auto-continue-until flag_found --auto-continue-max-depth 5 --auto-continue-on blocked,timeout`
 5. Inspect outputs:
@@ -58,6 +60,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - `OPENAI_API_KEY` (or `CODEX_API_KEY`) in control plane environment, or
   - upload tagged auth files from the web UI (`CTFs` page) or API (`/auth/codex/*`).
 - Uploaded auth files are mounted read-only as seed material and copied into writable `CODEX_HOME` at sandbox startup.
+- Optional same-run retry/reflection (`runner_loop_policy`) reuses the writable `/workspace/run` workspace, snapshots each attempt under `runs/<run_id>/run/attempts/`, and records summary metadata in `runner_loop_state.json` plus run result finalization metadata.
 - Sandbox env passthrough is controlled by `SANDBOX_ENV_PASSTHROUGH`.
 - Optional: set `CODEX_AUTH_ENCRYPTION_KEY` (Fernet key) for explicit auth-secret encryption key control.
 - Codex runs include a local MCP tool `verify_flag_candidate` by default (toggle with `CODEX_FLAG_VERIFY_MCP_ENABLED=0` in `SANDBOX_ENV_PASSTHROUGH`/env).

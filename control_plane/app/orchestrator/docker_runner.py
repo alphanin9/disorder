@@ -307,6 +307,10 @@ class DockerRunner:
                 result_status_before_stop_eval=result_status_before_stop_eval,
                 result_status_after_stop_eval=final_status,
             )
+            finalization_metadata = self._attach_runner_loop_state(
+                run_mount_dir=run_mount_dir,
+                finalization_metadata=finalization_metadata,
+            )
 
             result_key, logs_key = run_result_object_keys(str(run.id))
             self.blob_store.put_file(result_key, result_path)
@@ -522,8 +526,7 @@ class DockerRunner:
                 "runtimes": [],
                 "cdi_spec_dirs": [],
                 "detail": (
-                    "Unable to query Docker daemon info for GPU support signals: "
-                    f"{exc}"
+                    f"Unable to query Docker daemon info for GPU support signals: {exc}"
                 ),
             }
 
@@ -536,11 +539,7 @@ class DockerRunner:
         default_runtime = str(info.get("DefaultRuntime") or "").strip() or None
         cdi_spec_dirs_raw = info.get("CDISpecDirs")
         cdi_spec_dirs = (
-            [
-                str(path).strip()
-                for path in cdi_spec_dirs_raw
-                if str(path).strip()
-            ]
+            [str(path).strip() for path in cdi_spec_dirs_raw if str(path).strip()]
             if isinstance(cdi_spec_dirs_raw, list)
             else []
         )
@@ -908,6 +907,7 @@ class DockerRunner:
             "budgets": run.budgets,
             "stop_criteria": run.stop_criteria,
             "agent_invocation": run.agent_invocation or {},
+            "runner_loop_policy": getattr(run, "runner_loop_policy", None),
             "allowed_endpoints": run.allowed_endpoints,
             "paths": run.paths,
             "local_deploy": run.local_deploy,
@@ -1076,6 +1076,36 @@ class DockerRunner:
             "failure_reason_code": reason_code,
             "failure_reason_detail": reason_detail,
         }
+
+    def _attach_runner_loop_state(
+        self,
+        *,
+        run_mount_dir: Path,
+        finalization_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        state_path = run_mount_dir / "runner_loop_state.json"
+        if not state_path.exists() or not state_path.is_file():
+            return finalization_metadata
+
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(
+                f"[orchestrator] unable to read runner loop state from {state_path}: {exc}",
+                flush=True,
+            )
+            return finalization_metadata
+
+        if not isinstance(payload, dict):
+            print(
+                f"[orchestrator] ignoring non-object runner loop state in {state_path}",
+                flush=True,
+            )
+            return finalization_metadata
+
+        merged = dict(finalization_metadata)
+        merged["runner_loop"] = payload
+        return merged
 
     def _start_local_deploy(
         self, run_id: str, challenge_dir: Path

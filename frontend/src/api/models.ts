@@ -23,6 +23,16 @@ export type AutoContinuationPolicyPayload = {
   message_template?: string;
   inherit_agent_invocation?: boolean;
 };
+export type RunnerLoopPolicyPayload = {
+  enabled?: boolean;
+  max_attempts?: number;
+  target_status?: "flag_found" | "deliverable_produced" | "blocked";
+  retry_on_statuses?: Array<"flag_found" | "deliverable_produced" | "blocked">;
+  retry_on_reason_codes?: string[];
+  continue_on_partial_success?: boolean;
+  min_seconds_remaining?: number;
+  instruction_template?: string;
+};
 type BaseRunCreateRequest = components["schemas"]["RunCreateRequest"];
 export type RunCreateRequest = BaseRunCreateRequest & {
   reasoning_effort?: "low" | "medium" | "high" | "xhigh";
@@ -32,6 +42,7 @@ export type RunCreateRequest = BaseRunCreateRequest & {
   } | null;
   agent_invocation?: AgentInvocationPayload | null;
   auto_continuation_policy?: AutoContinuationPolicyPayload | null;
+  runner_loop_policy?: RunnerLoopPolicyPayload | null;
 };
 export type RunContinuationType = "hint" | "deliverable_fix" | "strategy_change" | "other";
 type BaseRunRead = components["schemas"]["RunRead"];
@@ -43,10 +54,40 @@ export type RunRead = BaseRunRead & {
   continuation_origin?: "operator" | "auto";
   agent_invocation?: AgentInvocationPayload;
   auto_continuation_policy?: AutoContinuationPolicyPayload | null;
+  runner_loop_policy?: RunnerLoopPolicyPayload | null;
 };
 export type RunListResponse = { items: RunRead[] };
 type BaseRunResultRead = components["schemas"]["RunResultRead"];
-export type RunResultRead = BaseRunResultRead;
+export type RunResultRead = BaseRunResultRead & {
+  finalization_metadata?: {
+    contract_valid?: boolean;
+    sandbox_exit_code?: number | null;
+    timed_out?: boolean;
+    result_status_before_stop_eval?: string;
+    result_status_after_stop_eval?: string;
+    failure_reason_code?: string;
+    failure_reason_detail?: string;
+    runner_loop?: {
+      policy?: RunnerLoopPolicyPayload;
+      total_attempts?: number;
+      final_attempt_number?: number | null;
+      stopped_because?: string | null;
+      attempts?: Array<{
+        attempt: number;
+        status: string;
+        failure_reason_code: string;
+        backend_exit_code: number;
+        contract_exit_code?: number;
+        decision: string;
+        decision_reason: string;
+        remaining_seconds_after_attempt?: number;
+        snapshot_dir?: string;
+        deliverables_manifest_path?: string;
+        last_message_path?: string | null;
+      }>;
+    };
+  } | null;
+};
 export type RunStatusResponse = {
   run: RunRead;
   result?: RunResultRead | null;

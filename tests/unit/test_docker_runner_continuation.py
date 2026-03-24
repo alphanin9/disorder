@@ -7,7 +7,9 @@ from uuid import uuid4
 from control_plane.app.orchestrator.docker_runner import DockerRunner
 
 
-def test_sandbox_continuation_volume_mounts_existing_context_dir(tmp_path: Path) -> None:
+def test_sandbox_continuation_volume_mounts_existing_context_dir(
+    tmp_path: Path,
+) -> None:
     runner = DockerRunner.__new__(DockerRunner)
     runner.settings = SimpleNamespace(runs_dir=tmp_path)
     run = SimpleNamespace(
@@ -22,10 +24,15 @@ def test_sandbox_continuation_volume_mounts_existing_context_dir(tmp_path: Path)
 
     volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=host_run_dir)
     assert str(host_run_dir / "continuation") in volumes
-    assert volumes[str(host_run_dir / "continuation")] == {"bind": "/workspace/continuation", "mode": "ro"}
+    assert volumes[str(host_run_dir / "continuation")] == {
+        "bind": "/workspace/continuation",
+        "mode": "ro",
+    }
 
 
-def test_sandbox_continuation_volume_ignores_missing_context_dir(tmp_path: Path) -> None:
+def test_sandbox_continuation_volume_ignores_missing_context_dir(
+    tmp_path: Path,
+) -> None:
     runner = DockerRunner.__new__(DockerRunner)
     runner.settings = SimpleNamespace(runs_dir=tmp_path)
     run = SimpleNamespace(
@@ -40,7 +47,9 @@ def test_sandbox_continuation_volume_ignores_missing_context_dir(tmp_path: Path)
     assert volumes == {}
 
 
-def test_sandbox_continuation_volume_allows_daemon_only_host_path_when_local_context_exists(tmp_path: Path) -> None:
+def test_sandbox_continuation_volume_allows_daemon_only_host_path_when_local_context_exists(
+    tmp_path: Path,
+) -> None:
     runner = DockerRunner.__new__(DockerRunner)
     runner.settings = SimpleNamespace(runs_dir=tmp_path)
     run = SimpleNamespace(
@@ -51,7 +60,9 @@ def test_sandbox_continuation_volume_allows_daemon_only_host_path_when_local_con
     (tmp_path / str(run.id) / "continuation").mkdir(parents=True)
     daemon_only_host_run_dir = Path("/run/desktop/mnt/host/g/repo/runs") / str(run.id)
 
-    volumes = runner._sandbox_continuation_volume(run=run, host_run_dir=daemon_only_host_run_dir)
+    volumes = runner._sandbox_continuation_volume(
+        run=run, host_run_dir=daemon_only_host_run_dir
+    )
     assert str(daemon_only_host_run_dir / "continuation") in volumes
     assert volumes[str(daemon_only_host_run_dir / "continuation")] == {
         "bind": "/workspace/continuation",
@@ -65,11 +76,26 @@ def test_build_spec_payload_includes_continuation_metadata() -> None:
         id=uuid4(),
         challenge_id=uuid4(),
         backend="codex",
-        agent_invocation={"model": "gpt-5.4", "extra_args": ["--search"], "env": {"CODEX_BASE_URL": "https://api.example"}},
+        agent_invocation={
+            "model": "gpt-5.4",
+            "extra_args": ["--search"],
+            "env": {"CODEX_BASE_URL": "https://api.example"},
+        },
+        runner_loop_policy={
+            "enabled": True,
+            "max_attempts": 3,
+            "target_status": "flag_found",
+        },
         budgets={"reasoning_effort": "high", "max_minutes": 45},
-        stop_criteria={"primary": {"type": "FLAG_FOUND", "config": {"regex": "flag\\{.*?\\}"}}},
+        stop_criteria={
+            "primary": {"type": "FLAG_FOUND", "config": {"regex": "flag\\{.*?\\}"}}
+        },
         allowed_endpoints=[],
-        paths={"chal_mount": "/workspace/chal", "run_mount": "/workspace/run", "continuation_mount": "/workspace/continuation"},
+        paths={
+            "chal_mount": "/workspace/chal",
+            "run_mount": "/workspace/run",
+            "continuation_mount": "/workspace/continuation",
+        },
         local_deploy={"enabled": False, "network": None, "endpoints": []},
         parent_run_id=uuid4(),
         continuation_depth=2,
@@ -88,9 +114,16 @@ def test_build_spec_payload_includes_continuation_metadata() -> None:
     assert spec["continuation"]["type"] == "hint"
     assert spec["continuation"]["depth"] == 2
     assert spec["continuation"]["mount_path"] == "/workspace/continuation"
-    assert spec["continuation"]["deliverables_mount_path"] == "/workspace/continuation/deliverables"
-    assert spec["continuation"]["deliverables_manifest_path"] == "/workspace/continuation/deliverables_manifest.json"
+    assert (
+        spec["continuation"]["deliverables_mount_path"]
+        == "/workspace/continuation/deliverables"
+    )
+    assert (
+        spec["continuation"]["deliverables_manifest_path"]
+        == "/workspace/continuation/deliverables_manifest.json"
+    )
     assert spec["agent_invocation"]["model"] == "gpt-5.4"
+    assert spec["runner_loop_policy"]["max_attempts"] == 3
 
 
 def test_build_finalization_metadata_prefers_structured_failure_reason() -> None:
@@ -113,3 +146,22 @@ def test_build_finalization_metadata_prefers_structured_failure_reason() -> None
 
     assert metadata["failure_reason_code"] == "provider_quota_or_auth"
     assert metadata["failure_reason_detail"] == "Codex quota exceeded"
+
+
+def test_attach_runner_loop_state_merges_sidecar(tmp_path: Path) -> None:
+    runner = DockerRunner.__new__(DockerRunner)
+    run_mount_dir = tmp_path / "run"
+    run_mount_dir.mkdir(parents=True)
+    (run_mount_dir / "runner_loop_state.json").write_text(
+        '{"total_attempts": 2, "stopped_because": "target_status_reached"}',
+        encoding="utf-8",
+    )
+
+    merged = runner._attach_runner_loop_state(
+        run_mount_dir=run_mount_dir,
+        finalization_metadata={"failure_reason_code": "none"},
+    )
+
+    assert merged["failure_reason_code"] == "none"
+    assert merged["runner_loop"]["total_attempts"] == 2
+    assert merged["runner_loop"]["stopped_because"] == "target_status_reached"

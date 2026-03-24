@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
@@ -20,6 +21,28 @@ def _load_agent_runner_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _configure_runner_paths(module, tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    chal_dir = tmp_path / "chal"
+    run_dir.mkdir(parents=True)
+    chal_dir.mkdir(parents=True)
+    prompt_template = tmp_path / "agent_prompt.txt"
+    prompt_template.write_text(
+        "Challenge: {challenge_name}\nSame-run retry context:\n{runner_loop_context}\nContinuation context:\n{continuation_context}\n",
+        encoding="utf-8",
+    )
+    tooling_guide = tmp_path / "ctf_tooling_guide.md"
+    tooling_guide.write_text("guide", encoding="utf-8")
+
+    module.RUN_DIR = run_dir
+    module.CHAL_DIR = chal_dir
+    module.SPEC_PATH = run_dir / "spec.json"
+    module.PROMPT_TEMPLATE_PATH = prompt_template
+    module.TOOLING_GUIDE_PATH = tooling_guide
+    module.ATTEMPTS_DIR = run_dir / "attempts"
+    module.RUNNER_LOOP_STATE_PATH = run_dir / "runner_loop_state.json"
 
 
 def test_normalize_result_payload_maps_non_contract_shape() -> None:
@@ -103,7 +126,9 @@ def test_normalize_result_payload_preserves_math_deliverables_and_evidence() -> 
     assert normalized["evidence"][1]["ref"] == "matrix.txt"
 
 
-def test_normalize_result_payload_strips_workspace_run_prefix_from_deliverables() -> None:
+def test_normalize_result_payload_strips_workspace_run_prefix_from_deliverables() -> (
+    None
+):
     module = _load_agent_runner_module()
     spec = {"challenge_id": "abc-123", "challenge_name": "Example"}
     raw = {
@@ -123,7 +148,11 @@ def test_normalize_result_payload_strips_workspace_run_prefix_from_deliverables(
 
 def test_blocked_result_includes_failure_reason_code() -> None:
     module = _load_agent_runner_module()
-    payload = module._blocked_result({"challenge_id": "abc", "challenge_name": "Example"}, "quota", failure_reason_code="provider_quota_or_auth")
+    payload = module._blocked_result(
+        {"challenge_id": "abc", "challenge_name": "Example"},
+        "quota",
+        failure_reason_code="provider_quota_or_auth",
+    )
     assert payload["failure_reason_code"] == "provider_quota_or_auth"
 
 
@@ -157,7 +186,10 @@ def test_codex_command_applies_agent_invocation_model_and_extra_args(tmp_path) -
                 "model": "gpt-5.4",
                 "profile": "ctf",
                 "extra_args": ["--search", "full"],
-                "env": {"CODEX_BASE_URL": "https://api.example", "OPENAI_API_KEY": "ignore-me"},
+                "env": {
+                    "CODEX_BASE_URL": "https://api.example",
+                    "OPENAI_API_KEY": "ignore-me",
+                },
             },
         },
         "codex",
@@ -340,3 +372,170 @@ def test_seed_writable_codex_home_copies_skill_seed(monkeypatch, tmp_path) -> No
     assert copied_skill.read_text(encoding="utf-8") == "# ctf-player"
     assert copied_ref.exists()
     assert copied_ref.read_text(encoding="utf-8") == "hello"
+
+
+def test_runner_loop_retries_retryable_blocked_attempt_and_snapshots_state(
+    monkeypatch, tmp_path
+) -> None:
+    module = _load_agent_runner_module()
+    _configure_runner_paths(module, tmp_path)
+
+    spec = {
+        "challenge_id": "abc-123",
+        "challenge_name": "Example",
+        "backend": "codex",
+        "budgets": {"max_minutes": 10},
+        "runner_loop_policy": {
+            "enabled": True,
+            "max_attempts": 3,
+            "target_status": "flag_found",
+            "retry_on_statuses": ["blocked"],
+            "retry_on_reason_codes": ["provider_quota_or_auth"],
+            "continue_on_partial_success": True,
+            "min_seconds_remaining": 0,
+        },
+    }
+
+    prompt_contexts: list[str] = []
+
+    def _fake_render_prompt(_spec, *, runner_loop_context=None):
+        prompt_contexts.append(runner_loop_context or "")
+        return f"prompt-{len(prompt_contexts)}"
+
+    responses = [
+        {
+            "exit_code": 2,
+            "readme": "# Attempt 1\n\nBlocked.\n",
+            "result": {
+                "status": "blocked",
+                "failure_reason_code": "provider_quota_or_auth",
+                "failure_reason_detail": "quota",
+                "notes": "quota",
+            },
+            "last_message": "attempt-1",
+        },
+        {
+            "exit_code": 0,
+            "readme": "# Attempt 2\n\nSolved.\n",
+            "result": {
+                "status": "flag_found",
+                "flag": "flag{demo}",
+                "flag_verification": {
+                    "method": "none",
+                    "verified": False,
+                    "details": "candidate",
+                },
+                "deliverables": [{"path": "solve.py", "type": "solve_script"}],
+                "notes": "done",
+            },
+            "last_message": "attempt-2",
+        },
+    ]
+
+    def _fake_run_backend_attempt(_spec, backend, prompt):
+        response = responses.pop(0)
+        module._write_readme(response["readme"])
+        module._write_result(response["result"])
+        (module.RUN_DIR / "codex_last_message.txt").write_text(
+            response["last_message"], encoding="utf-8"
+        )
+        (module.RUN_DIR / "solve.py").write_text("print('ok')\n", encoding="utf-8")
+        assert backend == "codex"
+        assert prompt.startswith("prompt-")
+        return int(response["exit_code"])
+
+    monkeypatch.setattr(module, "_render_prompt", _fake_render_prompt)
+    monkeypatch.setattr(module, "_run_backend_attempt", _fake_run_backend_attempt)
+
+    exit_code = module.run_backend_attempt_loop(spec, backend="codex")
+
+    assert exit_code == 0
+    assert len(prompt_contexts) == 2
+    assert "Previous attempt snapshot" in prompt_contexts[1]
+    assert "provider_quota_or_auth" in prompt_contexts[1]
+
+    first_attempt_dir = module.RUN_DIR / "attempts" / "001"
+    assert (first_attempt_dir / "result.normalized.json").exists()
+    assert (first_attempt_dir / "README.md").exists()
+    assert (first_attempt_dir / "codex_last_message.txt").exists()
+    assert (
+        json.loads((first_attempt_dir / "decision.json").read_text(encoding="utf-8"))[
+            "action"
+        ]
+        == "continue"
+    )
+
+    final_result = json.loads(
+        (module.RUN_DIR / "result.json").read_text(encoding="utf-8")
+    )
+    assert final_result["status"] == "flag_found"
+
+    loop_state = json.loads(module.RUNNER_LOOP_STATE_PATH.read_text(encoding="utf-8"))
+    assert loop_state["total_attempts"] == 2
+    assert loop_state["final_attempt_number"] == 2
+    assert loop_state["stopped_because"] == "target_status_reached"
+    assert loop_state["attempts"][0]["decision"] == "continue"
+    assert loop_state["attempts"][1]["decision"] == "stop"
+
+
+def test_runner_loop_clears_stale_contract_files_before_retry(
+    monkeypatch, tmp_path
+) -> None:
+    module = _load_agent_runner_module()
+    _configure_runner_paths(module, tmp_path)
+
+    spec = {
+        "challenge_id": "abc-123",
+        "challenge_name": "Example",
+        "backend": "codex",
+        "budgets": {"max_minutes": 10},
+        "runner_loop_policy": {
+            "enabled": True,
+            "max_attempts": 2,
+            "target_status": "flag_found",
+            "retry_on_statuses": ["blocked"],
+            "retry_on_reason_codes": ["provider_quota_or_auth"],
+            "continue_on_partial_success": True,
+            "min_seconds_remaining": 0,
+        },
+    }
+
+    attempt_counter = {"value": 0}
+
+    def _fake_render_prompt(_spec, *, runner_loop_context=None):
+        return str(runner_loop_context or "prompt")
+
+    def _fake_run_backend_attempt(_spec, backend, prompt):
+        attempt_counter["value"] += 1
+        assert backend == "codex"
+        assert prompt
+        if attempt_counter["value"] == 1:
+            module._write_readme("# Attempt 1\n")
+            module._write_result(
+                {
+                    "status": "blocked",
+                    "failure_reason_code": "provider_quota_or_auth",
+                    "notes": "retry me",
+                }
+            )
+        else:
+            module._write_readme("# Attempt 2\n")
+        return 0
+
+    monkeypatch.setattr(module, "_render_prompt", _fake_render_prompt)
+    monkeypatch.setattr(module, "_run_backend_attempt", _fake_run_backend_attempt)
+
+    module.run_backend_attempt_loop(spec, backend="codex")
+
+    final_result = json.loads(
+        (module.RUN_DIR / "result.json").read_text(encoding="utf-8")
+    )
+    assert final_result["status"] == "blocked"
+    assert final_result["failure_reason_code"] == "sandbox_output_contract_missing"
+
+    first_attempt = json.loads(
+        (module.RUN_DIR / "attempts" / "001" / "result.normalized.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert first_attempt["failure_reason_code"] == "provider_quota_or_auth"
