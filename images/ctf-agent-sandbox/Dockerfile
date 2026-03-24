@@ -129,6 +129,10 @@ RUN pip install --no-cache-dir \
     uv \
     z3-solver
 
+# Setup pwndbg
+RUN curl --proto '=https' --tlsv1.2 -LsSf 'https://install.pwndbg.re' | sh -s -- -t pwndbg-gdb && \
+    ln -s /usr/local/bin/pwndbg /usr/local/bin/gdb
+
 # NOTE: Same reasoning as wíth CI
 COPY agent_runner.py /usr/local/bin/agent_runner.py
 COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
@@ -145,10 +149,8 @@ RUN groupmod -g 1001 ubuntu && usermod -u 1001 -g 1001 ubuntu && \
 RUN chmod +x /usr/local/bin/agent_runner.py /usr/local/bin/flag_verify_mcp.py /usr/local/bin/flag_submit_mcp.py
 
 USER ctf
-# Setup pwndbg
-RUN PY_VER=$(gdb -nx --batch -iex 'py import sysconfig; print(sysconfig.get_config_var("VERSION"))') && \
-    uv tool install --python=$PY_VER  git+https://github.com/pwndbg/pwndbg && \
-    echo "source $(uv tool dir)/pwndbg/share/pwndbg/gdbinit.py" >> ~/.gdbinit
+
+
 
 # Hacky hack of hacks for `pip install` in user to not spam warnings 24/7
 ENV PATH="/home/ctf/.local/bin:$PATH"
