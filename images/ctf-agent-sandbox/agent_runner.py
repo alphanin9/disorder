@@ -669,7 +669,9 @@ def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str 
         print("[agent-runner] IDA MCP disabled: unable to accept IDA EULA", flush=True)
         return None, None
 
-    command_template = os.getenv("SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp")
+    command_template = os.getenv(
+        "SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp --unsafe"
+    )
     command = shlex.split(command_template)
     if not command:
         print(
