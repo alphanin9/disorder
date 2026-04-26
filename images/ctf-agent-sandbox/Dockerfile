@@ -21,7 +21,7 @@ RUN groupmod -g 1001 ubuntu && usermod -u 1001 -g 1001 ubuntu && \
 
 # NOTE: Done here to avoid costly rebuild of full image every time we need to change sth in tooling guide/prompt
 COPY agent_runner.py /usr/local/bin/agent_runner.py
-COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
+COPY flag_verify_mcp.py /usr/local/bin/flag_verifthy_mcp.py
 COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
 COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
 COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
@@ -35,7 +35,7 @@ ENTRYPOINT ["python3", "/usr/local/bin/agent_runner.py"]
 FROM sandbox-base AS full
 
 # Install SageMath and create CTF Python profile based on it
-RUN mamba create -y -n ctf sage && \
+RUN mamba create -y -n ctf sage python=3.13 && \
     echo "conda activate ctf" >> ~/.bashrc && \
     echo "conda activate ctf" >> /etc/skel/.bashrc
 
