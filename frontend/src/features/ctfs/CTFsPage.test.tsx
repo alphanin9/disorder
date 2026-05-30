@@ -28,6 +28,9 @@ const server = setupServer(
       configured: false,
       active_tag: null,
       tags: [],
+      health_status: "unknown",
+      reauth_required: false,
+      limit_status: "unknown",
     }),
   ),
 );

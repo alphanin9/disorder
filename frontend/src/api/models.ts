@@ -144,6 +144,14 @@ export type CodexAuthFile = {
   sha256: string;
   size_bytes: number;
   uploaded_at: string;
+  source?: string | null;
+  health_status?: string | null;
+  last_checked_at?: string | null;
+  last_health_error?: string | null;
+  limit_status?: string | null;
+  last_limit_checked_at?: string | null;
+  last_limit_error?: string | null;
+  quota_snapshot?: Record<string, unknown> | null;
 };
 
 export type CodexAuthTag = {
@@ -156,6 +164,28 @@ export type CodexAuthStatusResponse = {
   configured: boolean;
   active_tag: string | null;
   tags: CodexAuthTag[];
+  health_status: string;
+  reauth_required: boolean;
+  limit_status: string;
+};
+
+export type CodexDeviceAuthStartResponse = {
+  flow_id: string;
+  tag: string;
+  user_code: string;
+  verification_uri: string;
+  expires_at: string;
+  interval_seconds: number;
+  status: string;
+};
+
+export type CodexDeviceAuthPollResponse = {
+  flow_id: string;
+  tag: string;
+  status: "pending" | "authorized" | "expired" | string;
+  message?: string | null;
+  auth_file?: CodexAuthFile | null;
+  auth_status?: CodexAuthStatusResponse | null;
 };
 
 export type RunResultPayload = {

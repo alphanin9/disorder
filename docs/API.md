@@ -15,6 +15,10 @@
 
 ## Auth
 - `GET /auth/codex/status`
+- `POST /auth/codex/device/start` with body `{ "tag": "default" }`
+- `POST /auth/codex/device/{flow_id}/poll`
+- `POST /auth/codex/health-check`
+  - Refresh-checks stored OAuth credentials and, when enabled, probes Codex quota headers for account limit status.
 - `POST /auth/codex/files` (multipart form with `file` and `tag`)
 - `POST /auth/codex/active-tag` with body `{ "tag": "..." }`
 - `DELETE /auth/codex/files/{file_id}`

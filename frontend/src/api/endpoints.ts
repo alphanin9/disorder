@@ -5,6 +5,8 @@ import type {
   ChallengeListResponse,
   ChallengeManifest,
   ChallengeUpdateRequest,
+  CodexDeviceAuthPollResponse,
+  CodexDeviceAuthStartResponse,
   CodexAuthFile,
   CodexAuthStatusResponse,
   CTF,
@@ -180,6 +182,25 @@ export async function continueRun(runId: string, payload: RunContinueRequest): P
 
 export async function getCodexAuthStatus(): Promise<CodexAuthStatusResponse> {
   return apiRequest<CodexAuthStatusResponse>("/auth/codex/status");
+}
+
+export async function startCodexDeviceAuth(tag: string): Promise<CodexDeviceAuthStartResponse> {
+  return apiRequest<CodexDeviceAuthStartResponse>("/auth/codex/device/start", {
+    method: "POST",
+    body: JSON.stringify({ tag }),
+  });
+}
+
+export async function pollCodexDeviceAuth(flowId: string): Promise<CodexDeviceAuthPollResponse> {
+  return apiRequest<CodexDeviceAuthPollResponse>(`/auth/codex/device/${flowId}/poll`, {
+    method: "POST",
+  });
+}
+
+export async function checkCodexAuthHealth(): Promise<CodexAuthStatusResponse> {
+  return apiRequest<CodexAuthStatusResponse>("/auth/codex/health-check", {
+    method: "POST",
+  });
 }
 
 export async function uploadCodexAuthFile(file: File, tag: string): Promise<CodexAuthFile> {
