@@ -19,7 +19,6 @@ class CodexAuthFileRead(BaseModel):
     last_checked_at: datetime | None = None
     last_health_error: str | None = None
     limit_status: str | None = None
-    limit_summary: str | None = None
     last_limit_checked_at: datetime | None = None
     last_limit_error: str | None = None
     quota_snapshot: dict[str, Any] | None = None

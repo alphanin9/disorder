@@ -6,7 +6,6 @@ from control_plane.app.services.auth_service import (
     _build_codex_auth_json,
     _parse_quota_snapshot,
     _quota_status,
-    _quota_summary,
     is_allowed_auth_file_name,
     normalize_auth_tag,
     sanitize_auth_file_name,
@@ -39,7 +38,7 @@ def test_auth_file_allowlist_defaults() -> None:
 
 
 def test_build_codex_auth_json_matches_cli_shape() -> None:
-    claims = {"email": "User@Example.COM", "sub": "acct_123"}
+    claims = {"email": "User@Example.COM", "https://api.openai.com/auth": {"chatgpt_account_id": "acct_123"}}
     encoded_claims = base64.urlsafe_b64encode(json.dumps(claims).encode("utf-8")).decode("utf-8").rstrip("=")
     id_token = f"header.{encoded_claims}.signature"
 
@@ -92,9 +91,8 @@ def test_parse_quota_snapshot_from_codex_headers() -> None:
     assert snapshot["plan_type"] == "plus"
     assert snapshot["active_limit"] == 2
     assert snapshot["primary"]["used_percent"] == 25
+    assert snapshot["secondary"]["window_minutes"] == 10080
     assert _quota_status(snapshot) == "available"
-    assert "5h 75% left" in _quota_summary(snapshot)
-    assert "7d 0% left" in _quota_summary(snapshot)
 
 
 def test_quota_status_detects_exhausted_and_rate_limited() -> None:

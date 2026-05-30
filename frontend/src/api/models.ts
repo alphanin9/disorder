@@ -149,7 +149,6 @@ export type CodexAuthFile = {
   last_checked_at?: string | null;
   last_health_error?: string | null;
   limit_status?: string | null;
-  limit_summary?: string | null;
   last_limit_checked_at?: string | null;
   last_limit_error?: string | null;
   quota_snapshot?: Record<string, unknown> | null;

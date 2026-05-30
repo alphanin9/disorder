@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { inputClasses } from "@/components/ui/forms";
 
+import { CodexUsage } from "./CodexUsage";
+
 export function CodexAuthCard() {
   const queryClient = useQueryClient();
   const [tag, setTag] = useState("default");
@@ -265,24 +267,26 @@ export function CodexAuthCard() {
                   </div>
                 </div>
 
-                <ul className="space-y-1 text-xs text-ink-muted">
+                <ul className="space-y-2 text-xs text-ink-muted">
                   {tagInfo.files.map((fileInfo) => (
-                    <li key={fileInfo.id} className="flex items-center justify-between gap-2 rounded bg-surface-strong px-2 py-1">
-                      <span className="min-w-0">
-                        <span className="font-medium">{fileInfo.file_name}</span> ({fileInfo.size_bytes} bytes)
-                        {fileInfo.health_status ? <span className="ml-2">health: {fileInfo.health_status}</span> : null}
-                        {fileInfo.limit_summary ? <span className="ml-2">limits: {fileInfo.limit_summary}</span> : null}
-                        {fileInfo.last_limit_error ? <span className="ml-2 text-danger">limits: {fileInfo.last_limit_error}</span> : null}
-                      </span>
-                      <button
-                        type="button"
-                        className="font-semibold text-danger hover:underline"
-                        onClick={() => {
-                          deleteFileMutation.mutate(fileInfo.id);
-                        }}
-                      >
-                        Remove
-                      </button>
+                    <li key={fileInfo.id} className="rounded bg-surface-strong px-2 py-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="font-medium">{fileInfo.file_name}</span> ({fileInfo.size_bytes} bytes)
+                          {fileInfo.health_status ? <span className="ml-2">health: {fileInfo.health_status}</span> : null}
+                        </span>
+                        <button
+                          type="button"
+                          className="font-semibold text-danger hover:underline"
+                          onClick={() => {
+                            deleteFileMutation.mutate(fileInfo.id);
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <CodexUsage file={fileInfo} />
+                      {fileInfo.last_limit_error ? <p className="mt-2 text-danger">Limit error: {fileInfo.last_limit_error}</p> : null}
                     </li>
                   ))}
                 </ul>

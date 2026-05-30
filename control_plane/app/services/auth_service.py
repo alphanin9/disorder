@@ -156,7 +156,6 @@ def _file_to_schema(item: dict[str, Any]) -> CodexAuthFileRead:
         last_checked_at=_parse_datetime(item.get("last_checked_at")),
         last_health_error=str(item.get("last_health_error")) if item.get("last_health_error") else None,
         limit_status=str(item.get("limit_status")) if item.get("limit_status") else None,
-        limit_summary=str(item.get("limit_summary")) if item.get("limit_summary") else None,
         last_limit_checked_at=_parse_datetime(item.get("last_limit_checked_at")),
         last_limit_error=str(item.get("last_limit_error")) if item.get("last_limit_error") else None,
         quota_snapshot=item.get("quota_snapshot") if isinstance(item.get("quota_snapshot"), dict) else None,
@@ -372,8 +371,8 @@ def _request_codex_token_refresh(refresh_token: str) -> dict[str, Any]:
     with httpx.Client(timeout=httpx.Timeout(20.0), headers={"Accept": "application/json"}) as client:
         response = client.post(
             CODEX_OAUTH_TOKEN_URL,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={
+            headers={"Content-Type": "application/json"},
+            json={
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
                 "client_id": CODEX_OAUTH_CLIENT_ID,
@@ -469,52 +468,6 @@ def _parse_quota_snapshot(headers: httpx.Headers, *, status_code: int, model: st
     }
 
 
-def _format_reset_at(reset_at_ms: Any) -> str | None:
-    if not isinstance(reset_at_ms, int | float) or reset_at_ms <= 0:
-        return None
-    return datetime.fromtimestamp(reset_at_ms / 1000, tz=timezone.utc).isoformat()
-
-
-def _format_window_summary(label: str, window: dict[str, Any]) -> str:
-    used_percent = window.get("used_percent")
-    summary = label
-    if isinstance(used_percent, int | float):
-        left = max(0, min(100, round(100 - used_percent)))
-        summary = f"{summary} {left}% left"
-    reset_at = _format_reset_at(window.get("reset_at_ms"))
-    if reset_at:
-        summary = f"{summary} (resets {reset_at})"
-    return summary
-
-
-def _quota_window_label(window_minutes: Any) -> str:
-    if not isinstance(window_minutes, int) or window_minutes <= 0:
-        return "quota"
-    if window_minutes % 1440 == 0:
-        return f"{window_minutes // 1440}d"
-    if window_minutes % 60 == 0:
-        return f"{window_minutes // 60}h"
-    return f"{window_minutes}m"
-
-
-def _quota_summary(snapshot: dict[str, Any]) -> str:
-    primary = snapshot.get("primary") if isinstance(snapshot.get("primary"), dict) else {}
-    secondary = snapshot.get("secondary") if isinstance(snapshot.get("secondary"), dict) else {}
-    parts = [
-        _format_window_summary(_quota_window_label(primary.get("window_minutes")), primary),
-        _format_window_summary(_quota_window_label(secondary.get("window_minutes")), secondary),
-    ]
-    plan_type = snapshot.get("plan_type")
-    if isinstance(plan_type, str) and plan_type:
-        parts.append(f"plan:{plan_type}")
-    active_limit = snapshot.get("active_limit")
-    if isinstance(active_limit, int):
-        parts.append(f"active:{active_limit}")
-    if snapshot.get("status") == 429:
-        parts.append("rate-limited")
-    return ", ".join(parts)
-
-
 def _quota_status(snapshot: dict[str, Any]) -> str:
     if snapshot.get("status") == 429:
         return "rate_limited"
@@ -600,7 +553,6 @@ def _mark_file_health(
     error: str | None = None,
     replacement_bytes: bytes | None = None,
     limit_status: str | None = None,
-    limit_summary: str | None = None,
     quota_snapshot: dict[str, Any] | None = None,
     limit_error: str | None = None,
 ) -> dict[str, Any]:
@@ -610,7 +562,6 @@ def _mark_file_health(
     updated["last_health_error"] = error
     if limit_status is not None:
         updated["limit_status"] = limit_status
-        updated["limit_summary"] = limit_summary
         updated["quota_snapshot"] = quota_snapshot
         updated["last_limit_checked_at"] = checked_at.isoformat()
         updated["last_limit_error"] = limit_error
@@ -661,7 +612,6 @@ def check_codex_auth_health(db: Session, *, force: bool = False) -> CodexAuthSta
                 refreshed["account_id"] = existing_tokens["account_id"]
             replacement = _build_codex_auth_json(refreshed)
             limit_status: str | None = None
-            limit_summary: str | None = None
             quota_snapshot: dict[str, Any] | None = None
             limit_error: str | None = None
             if settings.codex_auth_limit_probe_enabled:
@@ -671,7 +621,6 @@ def check_codex_auth_health(db: Session, *, force: bool = False) -> CodexAuthSta
                         model=settings.codex_auth_limit_probe_model,
                     )
                     limit_status = _quota_status(quota_snapshot)
-                    limit_summary = _quota_summary(quota_snapshot)
                 except Exception as limit_exc:  # noqa: BLE001
                     limit_status = "check_failed"
                     limit_error = str(limit_exc)
@@ -682,7 +631,6 @@ def check_codex_auth_health(db: Session, *, force: bool = False) -> CodexAuthSta
                     checked_at=now,
                     replacement_bytes=replacement,
                     limit_status=limit_status,
-                    limit_summary=limit_summary,
                     quota_snapshot=quota_snapshot,
                     limit_error=limit_error,
                 )
