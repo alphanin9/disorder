@@ -70,17 +70,12 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 
 ### B1. Runtime topology
 
-- Start `idalib-mcp` from sandbox runtime (`agent_runner.py`) using:
-  - `uv run idalib-mcp`
+- Register `idalib-mcp` in the managed Codex MCP config using stdio transport:
+  - `uv run idalib-mcp --unsafe --stdio-shared`
 - Ensure required Python package is present in sandbox:
   - `pip install idapro`
   - install `ida-pro-mcp` from `https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip` (not PyPI)
-- Expected MCP endpoint:
-  - `http://127.0.0.1:8745/mcp` (configurable port)
-- Process lifecycle:
-  - start before Codex backend execution
-  - verify readiness
-  - stop at run end
+- Process lifecycle is owned by Codex after it reads the managed stdio MCP config.
 
 ### B2. IDA dependency provisioning
 
@@ -88,8 +83,8 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 - Operator provides host Linux IDA installation path through env:
   - `SANDBOX_IDA_HOST_PATH`
 - Docker runner mounts it read-only into sandbox (default mount target `/opt/ida`).
-- Sandbox must export `IDADIR` to the mounted IDA path for IDA MCP runtime.
-- Sandbox runtime auto-accepts configured EULA keys before starting IDA MCP:
+- Sandbox must include `IDADIR` in the Codex MCP server environment for IDA MCP runtime.
+- Sandbox runtime auto-accepts configured EULA keys before registering IDA MCP:
   - default `SANDBOX_IDA_ACCEPT_EULA=true`
   - default `SANDBOX_IDA_EULA_VERSIONS=90,91,92,93`
 - Optional persistence across runs:
@@ -99,15 +94,16 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 
 - If `SANDBOX_IDA_HOST_PATH` is unset/empty:
   - do not mount IDA path
-  - do not start `idalib-mcp`
-  - do not inject IDA MCP server into Codex command
+  - do not register `idalib-mcp` in the managed Codex MCP config
 - Runner logs should state IDA MCP is disabled/unavailable rather than failing cryptically.
 
 ### B4. MCP registration
 
 - Keep existing local `verify_flag_candidate` MCP registration.
-- Add conditional HTTP MCP registration for IDA:
-  - `mcp_servers.ida_pro.url=http://127.0.0.1:8745/mcp`
+- Add conditional stdio MCP registration for IDA:
+  - `mcp_servers.ida_pro.command="uv"`
+  - `mcp_servers.ida_pro.args=["run", "idalib-mcp", "--unsafe", "--stdio-shared"]`
+  - `mcp_servers.ida_pro.env` includes `IDADIR`
 
 ### B5. Agent-facing docs
 
@@ -127,7 +123,6 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
   - `SANDBOX_IDA_REGISTRY_HOST_PATH` (optional, for persistent `/home/ctf/.idapro`)
   - `SANDBOX_IDA_ACCEPT_EULA` (default `true`)
   - `SANDBOX_IDA_EULA_VERSIONS` (default `90,91,92,93`)
-  - `SANDBOX_IDALIB_MCP_PORT` (default `8745`)
 
 ### C2. Orchestrator behavior
 
@@ -154,7 +149,7 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 ## 6) Rollout strategy
 
 1. Land config + conditional mount/env plumbing.
-2. Land sandbox `idalib-mcp` lifecycle + MCP registration.
+2. Land sandbox stdio `idalib-mcp` MCP registration.
 3. Expand tests and docs.
 4. Enable on selected environments by setting `SANDBOX_IDA_HOST_PATH`.
 
@@ -163,7 +158,7 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 ## 7) Suggested PR breakdown
 
 1. PR-1: control-plane settings + Docker mount/env conditional logic.
-2. PR-2: sandbox runtime `uv run idalib-mcp` startup/teardown + Codex MCP wiring.
+2. PR-2: sandbox stdio `uv run idalib-mcp --unsafe --stdio-shared` Codex MCP wiring.
 3. PR-3: tests + docs + operator runbook updates.
 
 ---

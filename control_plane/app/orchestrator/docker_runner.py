@@ -671,15 +671,11 @@ class DockerRunner:
         mount_path = (
             self.settings.sandbox_ida_mount_path or "/opt/ida"
         ).strip() or "/opt/ida"
-        port = self.settings.sandbox_idalib_mcp_port
-        if port <= 0:
-            port = 8745
 
         resolved = self._resolve_host_mount_path(Path(host_path))
         env = {
             "SANDBOX_IDA_ENABLED": "1",
             "SANDBOX_IDA_INSTALL_PATH": mount_path,
-            "SANDBOX_IDALIB_MCP_PORT": str(port),
             "SANDBOX_IDA_ACCEPT_EULA": "1"
             if self.settings.sandbox_ida_accept_eula
             else "0",

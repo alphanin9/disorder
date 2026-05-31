@@ -21,7 +21,7 @@ RUN groupmod -g 1001 ubuntu && usermod -u 1001 -g 1001 ubuntu && \
 
 # NOTE: Done here to avoid costly rebuild of full image every time we need to change sth in tooling guide/prompt
 COPY agent_runner.py /usr/local/bin/agent_runner.py
-COPY flag_verify_mcp.py /usr/local/bin/flag_verifthy_mcp.py
+COPY flag_verify_mcp.py /usr/local/bin/flag_verify_mcp.py
 COPY flag_submit_mcp.py /usr/local/bin/flag_submit_mcp.py
 COPY agent_prompt.txt /usr/local/share/agent_prompt.txt
 COPY ctf_tooling_guide.md /usr/local/share/ctf_tooling_guide.md
@@ -114,6 +114,7 @@ RUN dotnet tool install ilspycmd
 # Hacky hack for Pip packages to install in our conda env
 SHELL ["conda", "run", "-n", "ctf", "/bin/bash", "-c"]
 RUN pip install --no-cache-dir \
+    https://github.com/mrphrazer/ghidra-headless-mcp/archive/refs/heads/main.zip \
     https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip \
     idapro \
     libdebug \
@@ -121,8 +122,6 @@ RUN pip install --no-cache-dir \
     pefile \
     pwntools \
     pycryptodome \
-    pyghidra-mcp \
-    pyghidra-mcp-cli \
     ropper \
     scapy \
     sympy \

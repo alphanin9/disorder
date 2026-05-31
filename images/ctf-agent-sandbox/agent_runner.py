@@ -5,7 +5,6 @@ import json
 import os
 import shlex
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -449,19 +448,6 @@ def _codex_auth_source() -> str | None:
     return None
 
 
-def _parse_port_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        parsed = int(raw)
-    except ValueError:
-        return default
-    if parsed <= 0:
-        return default
-    return parsed
-
-
 def _strip_managed_mcp_block(content: str) -> str:
     lines = content.splitlines()
     kept: list[str] = []
@@ -484,7 +470,167 @@ def _strip_managed_mcp_block(content: str) -> str:
     return "\n".join(kept) + "\n"
 
 
-def _managed_mcp_config_block(ida_url: str | None) -> str:
+def _toml_inline_string_map(values: dict[str, str]) -> str:
+    if not values:
+        return "{}"
+    items = ", ".join(
+        f"{json.dumps(key)} = {json.dumps(value)}" for key, value in values.items()
+    )
+    return "{ " + items + " }"
+
+
+def _append_stdio_mcp_server(
+    lines: list[str],
+    *,
+    name: str,
+    command: str,
+    args: list[str],
+    env: dict[str, str] | None = None,
+) -> None:
+    lines.extend(
+        [
+            f"[mcp_servers.{name}]",
+            f"command = {json.dumps(command)}",
+            f"args = {json.dumps(args)}",
+        ]
+    )
+    if env:
+        lines.append(f"env = {_toml_inline_string_map(env)}")
+    lines.append("")
+
+
+def _command_from_template(command_template: str) -> tuple[str, list[str]] | None:
+    command = shlex.split(command_template)
+    if not command:
+        return None
+    return command[0], command[1:]
+
+
+def _command_exists(command: str) -> bool:
+    if "/" in command:
+        return Path(command).exists()
+    return shutil.which(command) is not None
+
+
+def _resolve_ghidra_install_path() -> str:
+    return (
+        os.getenv("SANDBOX_GHIDRA_INSTALL_PATH", "").strip()
+        or os.getenv("GHIDRA_INSTALL_DIR", "").strip()
+        or "/opt/ghidra"
+    )
+
+
+def _ghidra_mcp_stdio_config() -> tuple[str, list[str], dict[str, str]] | None:
+    if not _env_truthy("SANDBOX_GHIDRA_MCP_ENABLED", default=True):
+        print(
+            "[agent-runner] Ghidra MCP disabled: SANDBOX_GHIDRA_MCP_ENABLED is false",
+            flush=True,
+        )
+        return None
+
+    ghidra_install_path = _resolve_ghidra_install_path()
+    if not Path(ghidra_install_path).exists():
+        print(
+            f"[agent-runner] Ghidra MCP disabled: installation path does not exist: {ghidra_install_path}",
+            flush=True,
+        )
+        return None
+
+    command_template = os.getenv("SANDBOX_GHIDRA_MCP_COMMAND")
+    if command_template:
+        parsed = _command_from_template(command_template)
+        if parsed is None:
+            print(
+                "[agent-runner] Ghidra MCP disabled: SANDBOX_GHIDRA_MCP_COMMAND is empty",
+                flush=True,
+            )
+            return None
+        command, args = parsed
+    else:
+        command = "ghidra-headless-mcp"
+        args = ["--ghidra-install-dir", ghidra_install_path]
+
+    if not _command_exists(command):
+        print(
+            f"[agent-runner] Ghidra MCP disabled: command not found: {command}",
+            flush=True,
+        )
+        return None
+
+    print("[agent-runner] Ghidra MCP configured for Codex stdio transport", flush=True)
+    return command, args, {"GHIDRA_INSTALL_DIR": ghidra_install_path}
+
+
+def _idalib_mcp_stdio_config() -> tuple[str, list[str], dict[str, str]] | None:
+    if not _env_truthy("SANDBOX_IDA_ENABLED", default=False):
+        print(
+            "[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True
+        )
+        return None
+
+    ida_install_path = (
+        os.getenv("SANDBOX_IDA_INSTALL_PATH", "").strip()
+        or os.getenv("IDADIR", "").strip()
+    )
+    if not ida_install_path:
+        print(
+            "[agent-runner] IDA MCP disabled: SANDBOX_IDA_INSTALL_PATH is not set",
+            flush=True,
+        )
+        return None
+
+    if not Path(ida_install_path).exists():
+        print(
+            f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}",
+            flush=True,
+        )
+        return None
+
+    if not _accept_ida_eula(ida_install_path):
+        print("[agent-runner] IDA MCP disabled: unable to accept IDA EULA", flush=True)
+        return None
+
+    command_template = os.getenv("SANDBOX_IDALIB_MCP_COMMAND")
+    if command_template:
+        parsed = _command_from_template(command_template)
+        if parsed is None:
+            print(
+                "[agent-runner] IDA MCP disabled: SANDBOX_IDALIB_MCP_COMMAND is empty",
+                flush=True,
+            )
+            return None
+        command, args = parsed
+    else:
+        command = "uv"
+        args = ["run", "idalib-mcp", "--unsafe", "--stdio-shared"]
+
+    if "--stdio" not in args and "--stdio-shared" not in args:
+        args.append("--stdio")
+
+    if not _command_exists(command):
+        print(
+            f"[agent-runner] IDA MCP disabled: command not found: {command}",
+            flush=True,
+        )
+        return None
+
+    env = {
+        "IDADIR": ida_install_path,
+        "IDA_PATH": ida_install_path,
+        "IDA_DIR": ida_install_path,
+        "IDA_INSTALL_PATH": ida_install_path,
+        "IDA_INSTALL_DIR": ida_install_path,
+        "IDALIB_IDA_PATH": ida_install_path,
+        "IDALIB_IDA_DIR": ida_install_path,
+    }
+    print("[agent-runner] IDA MCP configured for Codex stdio transport", flush=True)
+    return command, args, env
+
+
+def _managed_mcp_config_block(
+    ida_config: tuple[str, list[str], dict[str, str]] | None = None,
+    ghidra_config: tuple[str, list[str], dict[str, str]] | None = None,
+) -> str:
     lines: list[str] = []
     if _env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True):
         server_command = os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python")
@@ -492,13 +638,8 @@ def _managed_mcp_config_block(ida_url: str | None) -> str:
             "CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py"
         )
         mcp_args = [mcp_script, "--spec", SPEC_PATH.as_posix()]
-        lines.extend(
-            [
-                "[mcp_servers.flag_verify]",
-                f"command = {json.dumps(server_command)}",
-                f"args = {json.dumps(mcp_args)}",
-                "",
-            ]
+        _append_stdio_mcp_server(
+            lines, name="flag_verify", command=server_command, args=mcp_args
         )
 
     if _env_truthy("CODEX_FLAG_SUBMIT_MCP_ENABLED", default=False):
@@ -507,22 +648,28 @@ def _managed_mcp_config_block(ida_url: str | None) -> str:
             "CODEX_FLAG_SUBMIT_MCP_SCRIPT", "/usr/local/bin/flag_submit_mcp.py"
         )
         mcp_args = [mcp_script, "--spec", SPEC_PATH.as_posix()]
-        lines.extend(
-            [
-                "[mcp_servers.flag_submit]",
-                f"command = {json.dumps(server_command)}",
-                f"args = {json.dumps(mcp_args)}",
-                "",
-            ]
+        _append_stdio_mcp_server(
+            lines, name="flag_submit", command=server_command, args=mcp_args
         )
 
-    if ida_url:
-        lines.extend(
-            [
-                "[mcp_servers.ida_pro]",
-                f"url = {json.dumps(ida_url)}",
-                "",
-            ]
+    if ida_config:
+        ida_command, ida_args, ida_env = ida_config
+        _append_stdio_mcp_server(
+            lines,
+            name="ida_pro",
+            command=ida_command,
+            args=ida_args,
+            env=ida_env,
+        )
+
+    if ghidra_config:
+        ghidra_command, ghidra_args, ghidra_env = ghidra_config
+        _append_stdio_mcp_server(
+            lines,
+            name="ghidra",
+            command=ghidra_command,
+            args=ghidra_args,
+            env=ghidra_env,
         )
 
     if not lines:
@@ -533,7 +680,10 @@ def _managed_mcp_config_block(ida_url: str | None) -> str:
     return "\n".join(block) + "\n"
 
 
-def _write_managed_codex_mcp_config(ida_url: str | None = None) -> None:
+def _write_managed_codex_mcp_config(
+    ida_config: tuple[str, list[str], dict[str, str]] | None = None,
+    ghidra_config: tuple[str, list[str], dict[str, str]] | None = None,
+) -> None:
     codex_home = _codex_home_path()
     codex_home.mkdir(parents=True, exist_ok=True)
     config_path = codex_home / "config.toml"
@@ -543,7 +693,9 @@ def _write_managed_codex_mcp_config(ida_url: str | None = None) -> None:
         existing = config_path.read_text(encoding="utf-8")
 
     cleaned = _strip_managed_mcp_block(existing)
-    managed = _managed_mcp_config_block(ida_url)
+    managed = _managed_mcp_config_block(
+        ida_config=ida_config, ghidra_config=ghidra_config
+    )
     if managed:
         if cleaned and not cleaned.endswith("\n\n"):
             cleaned = cleaned + "\n"
@@ -559,39 +711,6 @@ def _write_managed_codex_mcp_config(ida_url: str | None = None) -> None:
     if config_path.exists():
         config_path.unlink()
         print(f"[agent-runner] removed empty Codex config at {config_path}", flush=True)
-
-
-def _idalib_mcp_url(port: int) -> str:
-    return os.getenv("SANDBOX_IDALIB_MCP_URL", f"http://127.0.0.1:{port}/mcp")
-
-
-def _wait_for_port_listen(
-    host: str, port: int, timeout_seconds: float, process: subprocess.Popen[str]
-) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            return False
-        try:
-            with socket.create_connection((host, port), timeout=0.5):
-                return True
-        except OSError:
-            time.sleep(0.2)
-    return False
-
-
-def _stop_background_process(process: subprocess.Popen[str] | None, name: str) -> None:
-    if process is None or process.poll() is not None:
-        return
-    print(f"[agent-runner] stopping {name}", flush=True)
-    try:
-        process.terminate()
-        process.wait(timeout=5)
-    except Exception:
-        try:
-            process.kill()
-        except Exception:
-            pass
 
 
 def _accept_ida_eula(ida_install_path: str) -> bool:
@@ -638,142 +757,6 @@ def _accept_ida_eula(ida_install_path: str) -> bool:
         flush=True,
     )
     return True
-
-
-def _start_idalib_mcp_if_available() -> tuple[subprocess.Popen[str] | None, str | None]:
-    if not _env_truthy("SANDBOX_IDA_ENABLED", default=False):
-        print(
-            "[agent-runner] IDA MCP disabled: SANDBOX_IDA_ENABLED is false", flush=True
-        )
-        return None, None
-
-    ida_install_path = (
-        os.getenv("SANDBOX_IDA_INSTALL_PATH", "").strip()
-        or os.getenv("IDADIR", "").strip()
-    )
-    if not ida_install_path:
-        print(
-            "[agent-runner] IDA MCP disabled: SANDBOX_IDA_INSTALL_PATH is not set",
-            flush=True,
-        )
-        return None, None
-
-    if not Path(ida_install_path).exists():
-        print(
-            f"[agent-runner] IDA MCP disabled: installation path does not exist: {ida_install_path}",
-            flush=True,
-        )
-        return None, None
-
-    if not _accept_ida_eula(ida_install_path):
-        print("[agent-runner] IDA MCP disabled: unable to accept IDA EULA", flush=True)
-        return None, None
-
-    command_template = os.getenv(
-        "SANDBOX_IDALIB_MCP_COMMAND", "uv run idalib-mcp --unsafe"
-    )
-    command = shlex.split(command_template)
-    if not command:
-        print(
-            "[agent-runner] IDA MCP disabled: SANDBOX_IDALIB_MCP_COMMAND is empty",
-            flush=True,
-        )
-        return None, None
-
-    if shutil.which(command[0]) is None:
-        print(
-            f"[agent-runner] IDA MCP disabled: command not found: {command[0]}",
-            flush=True,
-        )
-        return None, None
-
-    port = _parse_port_env("SANDBOX_IDALIB_MCP_PORT", 8745)
-    timeout_seconds = float(os.getenv("SANDBOX_IDALIB_MCP_STARTUP_TIMEOUT", "15"))
-    if timeout_seconds <= 0:
-        timeout_seconds = 15.0
-
-    process_env = os.environ.copy()
-    for env_name in (
-        "IDADIR",
-        "IDA_PATH",
-        "IDA_DIR",
-        "IDA_INSTALL_PATH",
-        "IDA_INSTALL_DIR",
-        "IDALIB_IDA_PATH",
-        "IDALIB_IDA_DIR",
-    ):
-        process_env.setdefault(env_name, ida_install_path)
-
-    print(f"[agent-runner] starting idalib MCP: {' '.join(command)}", flush=True)
-    process = subprocess.Popen(
-        command,
-        cwd=RUN_DIR,
-        env=process_env,
-    )
-    if not _wait_for_port_listen(
-        "127.0.0.1", port, timeout_seconds=timeout_seconds, process=process
-    ):
-        print(
-            "[agent-runner] IDA MCP failed to become ready; disabling for this run",
-            flush=True,
-        )
-        _stop_background_process(process, "idalib-mcp")
-        return None, None
-
-    url = _idalib_mcp_url(port)
-    print(f"[agent-runner] IDA MCP enabled at {url}", flush=True)
-    return process, url
-
-
-def _start_pyghidra_mcp() -> subprocess.Popen[str] | None:
-    # Project path is hardcoded at the moment - no point making it non-hardcoded
-    # Due to CWD this will write it into run_dir
-    command = shlex.split(
-        "pyghidra-mcp --transport streamable-http --project-path .pyghidra_project"
-    )
-
-    if shutil.which(command[0]) is None:
-        print(
-            f"[agent-runner] Pyghidra MCP disabled: command not found: {command[0]}",
-            flush=True,
-        )
-        return None
-
-    # Hardcoded for simplicity, fix later
-    port = 8000
-    # Note: Pyghidra seems to require a lot more startup time than IDA MCP
-    timeout_seconds = 60
-
-    print(f"[agent-runner] starting pyghidra MCP: {' '.join(command)}", flush=True)
-
-    process_env = os.environ.copy()
-
-    # Note: hardcoded due to installation process in Dockerfile
-    process_env["GHIDRA_INSTALL_DIR"] = "/opt/ghidra"
-
-    # Pyghidra MCP is a lot spammier than IDA MCP, so we filter the logs
-    process = subprocess.Popen(
-        command,
-        cwd=RUN_DIR,
-        env=process_env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    if not _wait_for_port_listen(
-        "127.0.0.1", port, timeout_seconds=timeout_seconds, process=process
-    ):
-        print(
-            "[agent-runner] Ghidra MCP failed to become ready; disabling for this run",
-            flush=True,
-        )
-        _stop_background_process(process, "pyghidra-mcp")
-        return None
-
-    # URL hardcoded at the moment, fix later
-    print(f"[agent-runner] PyGhidra MCP enabled at http://127.0.0.1:{port}", flush=True)
-
-    return process
 
 
 def _load_agent_invocation(spec: dict[str, Any]) -> dict[str, Any]:
@@ -895,9 +878,6 @@ def _resolve_backend_command(
 
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
-    idalib_process: subprocess.Popen[str] | None = None
-    ida_mcp_url: str | None = None
-
     if backend == "codex":
         auth_source = _codex_auth_source()
         if auth_source is None:
@@ -912,10 +892,11 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                 )
             )
             return 2
-        idalib_process, ida_mcp_url = _start_idalib_mcp_if_available()
-        _write_managed_codex_mcp_config(ida_url=ida_mcp_url)
-
-    pyghidra_process: subprocess.Popen[str] | None = _start_pyghidra_mcp()
+        ida_config = _idalib_mcp_stdio_config()
+        ghidra_config = _ghidra_mcp_stdio_config()
+        _write_managed_codex_mcp_config(
+            ida_config=ida_config, ghidra_config=ghidra_config
+        )
 
     if backend == "codex":
         backend_name = "Codex CLI"
@@ -946,8 +927,6 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         _write_result(
             _blocked_result(spec, error, failure_reason_code="backend_binary_missing")
         )
-        _stop_background_process(idalib_process, "idalib-mcp")
-        _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     if shutil.which(command[0]) is None:
@@ -959,99 +938,92 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
                 failure_reason_code="backend_binary_missing",
             )
         )
-        _stop_background_process(idalib_process, "idalib-mcp")
-        _stop_background_process(pyghidra_process, "pyghidra-mcp")
         return 2
 
     print(
         f"[agent-runner] executing backend command ({command_source}): {' '.join(command)}",
         flush=True,
     )
-    try:
-        process_env = os.environ.copy()
-        process_env.update(invocation_env)
-        process = subprocess.Popen(
-            command,
-            cwd=RUN_DIR,
-            env=process_env,
-            stdin=subprocess.PIPE if stdin_input is not None else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
+    process_env = os.environ.copy()
+    process_env.update(invocation_env)
+    process = subprocess.Popen(
+        command,
+        cwd=RUN_DIR,
+        env=process_env,
+        stdin=subprocess.PIPE if stdin_input is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
 
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-        stream_stderr_live = not (
-            backend == "codex"
-            and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True)
-        )
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    stream_stderr_live = not (
+        backend == "codex" and _env_truthy("CODEX_JSONL_LIVE_LOG_ONLY", default=True)
+    )
 
-        def _pump(stream, sink, printer, live: bool) -> None:
-            if stream is None:
-                return
+    def _pump(stream, sink, printer, live: bool) -> None:
+        if stream is None:
+            return
+        try:
+            for line in iter(stream.readline, ""):
+                sink.append(line)
+                if live:
+                    print(line, end="", file=printer, flush=True)
+        finally:
             try:
-                for line in iter(stream.readline, ""):
-                    sink.append(line)
-                    if live:
-                        print(line, end="", file=printer, flush=True)
-            finally:
-                try:
-                    stream.close()
-                except Exception:
-                    pass
+                stream.close()
+            except Exception:
+                pass
 
-        stdout_thread = threading.Thread(
-            target=_pump,
-            args=(process.stdout, stdout_chunks, sys.stdout, True),
-            daemon=True,
+    stdout_thread = threading.Thread(
+        target=_pump,
+        args=(process.stdout, stdout_chunks, sys.stdout, True),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_pump,
+        args=(process.stderr, stderr_chunks, sys.stderr, stream_stderr_live),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+    if stdin_input is not None and process.stdin is not None:
+        process.stdin.write(stdin_input)
+        process.stdin.close()
+
+    returncode = process.wait()
+    stdout_thread.join(timeout=5)
+    stderr_thread.join(timeout=5)
+    stdout_text = "".join(stdout_chunks)
+    stderr_text = "".join(stderr_chunks)
+
+    if returncode != 0:
+        if stderr_text and not stream_stderr_live:
+            print("[agent-runner] codex stderr tail:", file=sys.stderr, flush=True)
+            print(stderr_text[-8192:], file=sys.stderr, flush=True)
+        message = _backend_failure_message(
+            backend=backend,
+            returncode=returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
         )
-        stderr_thread = threading.Thread(
-            target=_pump,
-            args=(process.stderr, stderr_chunks, sys.stderr, stream_stderr_live),
-            daemon=True,
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-
-        if stdin_input is not None and process.stdin is not None:
-            process.stdin.write(stdin_input)
-            process.stdin.close()
-
-        returncode = process.wait()
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        stdout_text = "".join(stdout_chunks)
-        stderr_text = "".join(stderr_chunks)
-
-        if returncode != 0:
-            if stderr_text and not stream_stderr_live:
-                print("[agent-runner] codex stderr tail:", file=sys.stderr, flush=True)
-                print(stderr_text[-8192:], file=sys.stderr, flush=True)
-            message = _backend_failure_message(
-                backend=backend,
-                returncode=returncode,
-                stdout=stdout_text,
-                stderr=stderr_text,
-            )
-            if not (RUN_DIR / "README.md").exists():
-                _write_readme("# Blocked\n\n" + message + "\n")
-            if not (RUN_DIR / "result.json").exists():
-                _write_result(
-                    _blocked_result(
-                        spec,
-                        message,
-                        failure_reason_code=_backend_failure_reason_code(
-                            backend, stdout_text, stderr_text
-                        ),
-                    )
+        if not (RUN_DIR / "README.md").exists():
+            _write_readme("# Blocked\n\n" + message + "\n")
+        if not (RUN_DIR / "result.json").exists():
+            _write_result(
+                _blocked_result(
+                    spec,
+                    message,
+                    failure_reason_code=_backend_failure_reason_code(
+                        backend, stdout_text, stderr_text
+                    ),
                 )
+            )
 
-        return returncode
-    finally:
-        _stop_background_process(idalib_process, "idalib-mcp")
-        _stop_background_process(pyghidra_process, "pyghidra-mcp")
+    return returncode
 
 
 def _backend_failure_message(
