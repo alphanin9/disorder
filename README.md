@@ -69,13 +69,16 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Codex runs include a local MCP tool `verify_flag_candidate` by default (toggle with `CODEX_FLAG_VERIFY_MCP_ENABLED=0` in `SANDBOX_ENV_PASSTHROUGH`/env).
 - Optional IDA MCP support for reverse engineering:
   - Set `SANDBOX_IDA_HOST_PATH` to a Linux IDA installation path visible to the Docker daemon.
-  - Optionally set `SANDBOX_IDA_MOUNT_PATH` (default `/opt/ida`) and `SANDBOX_IDALIB_MCP_PORT` (default `8745`).
+  - Optionally set `SANDBOX_IDA_MOUNT_PATH` (default `/opt/ida`).
   - Optional persistence for accepted EULA/registry state: set `SANDBOX_IDA_REGISTRY_HOST_PATH` to mount `/home/ctf/.idapro` read-write.
   - EULA acceptance is handled automatically when IDA is enabled (`SANDBOX_IDA_ACCEPT_EULA=true` by default); version keys are configurable via `SANDBOX_IDA_EULA_VERSIONS`.
   - Sandbox image installs `ida-pro-mcp` from `https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip` plus `idapro`.
-  - When enabled, sandbox exports `IDADIR` to the mounted IDA path.
+  - When enabled for Codex runs, sandbox registers `uv run idalib-mcp --unsafe --stdio` as a stdio MCP server and includes `IDADIR` in the Codex MCP server environment.
   - If `SANDBOX_IDA_HOST_PATH` is empty, IDA MCP is not exposed to the sandbox agent.
-  - When enabled, sandbox startup launches `uv run idalib-mcp` and registers it with Codex MCP as an HTTP server.
+- Ghidra MCP support for Codex runs is enabled by default:
+  - Sandbox image installs `ghidra-headless-mcp` from `https://github.com/mrphrazer/ghidra-headless-mcp/archive/refs/heads/main.zip`.
+  - Sandbox registers `ghidra-headless-mcp --ghidra-install-dir /opt/ghidra` as a stdio MCP server and includes `GHIDRA_INSTALL_DIR` in the Codex MCP server environment.
+  - Set `SANDBOX_GHIDRA_MCP_ENABLED=0` to disable the managed Ghidra MCP config, or override the command with `SANDBOX_GHIDRA_MCP_COMMAND`.
 - Default Codex invocation uses `codex exec --json` so live logs can stream JSONL events; set `CODEX_JSONL_LIVE_LOG_ONLY=0` to also stream Codex stderr live.
 - Optional Discord notifications for `flag_found` runs:
   - `DISCORD_WEBHOOK_URL`

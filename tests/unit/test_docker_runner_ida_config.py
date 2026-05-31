@@ -35,7 +35,6 @@ def test_sandbox_ida_mount_and_env_disabled_when_host_path_unset() -> None:
         sandbox_ida_registry_host_path=None,
         sandbox_ida_accept_eula=True,
         sandbox_ida_eula_versions="90,91,92,93",
-        sandbox_idalib_mcp_port=8745,
     )
     runner = _build_runner(settings)
 
@@ -51,7 +50,6 @@ def test_sandbox_ida_mount_and_env_enabled_when_host_path_set() -> None:
         sandbox_ida_registry_host_path=None,
         sandbox_ida_accept_eula=True,
         sandbox_ida_eula_versions="90,91,92,93",
-        sandbox_idalib_mcp_port=8745,
     )
     runner = _build_runner(settings)
 
@@ -61,7 +59,6 @@ def test_sandbox_ida_mount_and_env_enabled_when_host_path_set() -> None:
     assert volume_spec == {"bind": "/opt/ida", "mode": "ro"}
     assert env["SANDBOX_IDA_ENABLED"] == "1"
     assert env["SANDBOX_IDA_INSTALL_PATH"] == "/opt/ida"
-    assert env["SANDBOX_IDALIB_MCP_PORT"] == "8745"
     assert env["SANDBOX_IDA_ACCEPT_EULA"] == "1"
     assert env["SANDBOX_IDA_EULA_VERSIONS"] == "90,91,92,93"
     assert env["IDADIR"] == "/opt/ida"
@@ -74,7 +71,6 @@ def test_sandbox_ida_mount_and_env_with_registry_volume() -> None:
         sandbox_ida_registry_host_path="/host/ida-registry",
         sandbox_ida_accept_eula=True,
         sandbox_ida_eula_versions="90,91,92,93",
-        sandbox_idalib_mcp_port=8745,
     )
     runner = _build_runner(settings)
     runner._resolve_host_mount_path = lambda p: (

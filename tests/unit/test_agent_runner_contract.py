@@ -258,27 +258,92 @@ def test_write_managed_codex_mcp_config_can_enable_flag_submit(
     )
 
 
-def test_write_managed_codex_mcp_config_includes_ida_url(monkeypatch, tmp_path) -> None:
+def test_write_managed_codex_mcp_config_includes_ida_stdio_server(
+    monkeypatch, tmp_path
+) -> None:
     module = _load_agent_runner_module()
     codex_home = tmp_path / "codex-home"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
-    module._write_managed_codex_mcp_config("http://127.0.0.1:8745/mcp")
+    module._write_managed_codex_mcp_config(
+        ida_config=(
+            "uv",
+            ["run", "idalib-mcp", "--unsafe", "--stdio"],
+            {"IDADIR": "/opt/ida"},
+        )
+    )
     config_path = codex_home / "config.toml"
     rendered = config_path.read_text(encoding="utf-8")
     assert "[mcp_servers.ida_pro]" in rendered
-    assert 'url = "http://127.0.0.1:8745/mcp"' in rendered
+    assert 'command = "uv"' in rendered
+    assert 'args = ["run", "idalib-mcp", "--unsafe", "--stdio"]' in rendered
+    assert 'env = { "IDADIR" = "/opt/ida" }' in rendered
 
 
-def test_start_idalib_mcp_returns_disabled_when_ida_not_enabled(monkeypatch) -> None:
+def test_write_managed_codex_mcp_config_includes_ghidra_stdio_server(
+    monkeypatch, tmp_path
+) -> None:
+    module = _load_agent_runner_module()
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    module._write_managed_codex_mcp_config(
+        ghidra_config=(
+            "ghidra-headless-mcp",
+            ["--ghidra-install-dir", "/opt/ghidra"],
+            {"GHIDRA_INSTALL_DIR": "/opt/ghidra"},
+        )
+    )
+    rendered = (codex_home / "config.toml").read_text(encoding="utf-8")
+    assert "[mcp_servers.ghidra]" in rendered
+    assert 'command = "ghidra-headless-mcp"' in rendered
+    assert 'args = ["--ghidra-install-dir", "/opt/ghidra"]' in rendered
+    assert 'env = { "GHIDRA_INSTALL_DIR" = "/opt/ghidra" }' in rendered
+
+
+def test_idalib_mcp_stdio_config_returns_disabled_when_ida_not_enabled(
+    monkeypatch,
+) -> None:
     module = _load_agent_runner_module()
     monkeypatch.delenv("SANDBOX_IDA_ENABLED", raising=False)
     monkeypatch.delenv("SANDBOX_IDA_INSTALL_PATH", raising=False)
     monkeypatch.delenv("IDADIR", raising=False)
 
-    process, url = module._start_idalib_mcp_if_available()
-    assert process is None
-    assert url is None
+    config = module._idalib_mcp_stdio_config()
+    assert config is None
+
+
+def test_idalib_mcp_stdio_config_appends_stdio_and_forwards_ida_env(
+    monkeypatch, tmp_path
+) -> None:
+    module = _load_agent_runner_module()
+    ida_dir = tmp_path / "ida"
+    ida_dir.mkdir()
+
+    monkeypatch.setenv("SANDBOX_IDA_ENABLED", "1")
+    monkeypatch.setenv("SANDBOX_IDA_INSTALL_PATH", str(ida_dir))
+    monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "0")
+    monkeypatch.setenv("SANDBOX_IDALIB_MCP_COMMAND", "python -m idalib_mcp --unsafe")
+
+    command, args, env = module._idalib_mcp_stdio_config()
+    assert command == "python"
+    assert args == ["-m", "idalib_mcp", "--unsafe", "--stdio"]
+    assert env["IDADIR"] == str(ida_dir)
+    assert env["IDALIB_IDA_PATH"] == str(ida_dir)
+
+
+def test_ghidra_mcp_stdio_config_uses_install_dir_env(monkeypatch, tmp_path) -> None:
+    module = _load_agent_runner_module()
+    ghidra_dir = tmp_path / "ghidra"
+    ghidra_dir.mkdir()
+
+    monkeypatch.setenv("SANDBOX_GHIDRA_INSTALL_PATH", str(ghidra_dir))
+    monkeypatch.setenv("SANDBOX_GHIDRA_MCP_COMMAND", "python -m ghidra_headless_mcp")
+
+    command, args, env = module._ghidra_mcp_stdio_config()
+    assert command == "python"
+    assert args == ["-m", "ghidra_headless_mcp"]
+    assert env == {"GHIDRA_INSTALL_DIR": str(ghidra_dir)}
 
 
 def test_render_continuation_context_mentions_deliverable_bundle_paths() -> None:

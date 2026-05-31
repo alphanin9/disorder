@@ -30,8 +30,9 @@
    - Selected env vars and optional uploaded-tagged Codex auth mount are passed into sandbox.
    - Operators should use the Codex device auth flow to create tagged `auth.json` material. Orchestrator stages the active auth tag from encrypted store into an ephemeral per-run directory and mounts it read-only as seed material; sandbox startup copies it into writable `CODEX_HOME`.
    - If `SANDBOX_CODEX_SKILLS_HOST_PATH` is configured, orchestrator mounts that directory read-only into the run and sandbox startup copies all seeded skill files into writable `CODEX_HOME/skills`.
-   - Default Codex command registers a local MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
-   - If `SANDBOX_IDA_HOST_PATH` is configured, orchestrator mounts IDA read-only, exports `IDADIR`, optionally mounts `/home/ctf/.idapro` for persistent registry state, and sandbox startup auto-accepts configured EULA keys before launching `uv run idalib-mcp` and registering it as an HTTP MCP server for Codex.
+   - Default Codex command registers a local stdio MCP server (`verify_flag_candidate`) for regex/local-check flag verification during run execution.
+   - If `SANDBOX_IDA_HOST_PATH` is configured, orchestrator mounts IDA read-only, exports `IDADIR`, optionally mounts `/home/ctf/.idapro` for persistent registry state, and sandbox startup auto-accepts configured EULA keys before registering `uv run idalib-mcp --unsafe --stdio` as a Codex stdio MCP server with the required IDA environment.
+   - Ghidra is installed in the sandbox image and registered for Codex as a stdio MCP server with `GHIDRA_INSTALL_DIR` forwarded in the MCP server configuration.
    - If `SANDBOX_GPU_PASSTHROUGH` is configured, orchestrator requests all GPUs visible to the Docker daemon for the sandbox container.
    - Docker daemon info can provide best-effort support signals such as registered runtimes or CDI spec directories, but it does not expose an authoritative GPU inventory or free-resource view.
 5. Sandbox writes `result.json` + `README.md` (+ deliverables) in `/workspace/run`.

@@ -114,6 +114,7 @@ RUN dotnet tool install ilspycmd
 # Hacky hack for Pip packages to install in our conda env
 SHELL ["conda", "run", "-n", "ctf", "/bin/bash", "-c"]
 RUN pip install --no-cache-dir \
+    https://github.com/mrphrazer/ghidra-headless-mcp/archive/refs/heads/main.zip \
     https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip \
     idapro \
     libdebug \
@@ -121,8 +122,6 @@ RUN pip install --no-cache-dir \
     pefile \
     pwntools \
     pycryptodome \
-    pyghidra-mcp \
-    pyghidra-mcp-cli \
     ropper \
     scapy \
     sympy \
