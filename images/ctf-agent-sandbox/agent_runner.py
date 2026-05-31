@@ -602,9 +602,9 @@ def _idalib_mcp_stdio_config() -> tuple[str, list[str], dict[str, str]] | None:
         command, args = parsed
     else:
         command = "uv"
-        args = ["run", "idalib-mcp", "--unsafe", "--stdio"]
+        args = ["run", "idalib-mcp", "--unsafe", "--stdio-shared"]
 
-    if "--stdio" not in args:
+    if "--stdio" not in args and "--stdio-shared" not in args:
         args.append("--stdio")
 
     if not _command_exists(command):

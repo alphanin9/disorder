@@ -268,7 +268,7 @@ def test_write_managed_codex_mcp_config_includes_ida_stdio_server(
     module._write_managed_codex_mcp_config(
         ida_config=(
             "uv",
-            ["run", "idalib-mcp", "--unsafe", "--stdio"],
+            ["run", "idalib-mcp", "--unsafe", "--stdio-shared"],
             {"IDADIR": "/opt/ida"},
         )
     )
@@ -276,7 +276,7 @@ def test_write_managed_codex_mcp_config_includes_ida_stdio_server(
     rendered = config_path.read_text(encoding="utf-8")
     assert "[mcp_servers.ida_pro]" in rendered
     assert 'command = "uv"' in rendered
-    assert 'args = ["run", "idalib-mcp", "--unsafe", "--stdio"]' in rendered
+    assert 'args = ["run", "idalib-mcp", "--unsafe", "--stdio-shared"]' in rendered
     assert 'env = { "IDADIR" = "/opt/ida" }' in rendered
 
 
@@ -330,6 +330,24 @@ def test_idalib_mcp_stdio_config_appends_stdio_and_forwards_ida_env(
     assert args == ["-m", "idalib_mcp", "--unsafe", "--stdio"]
     assert env["IDADIR"] == str(ida_dir)
     assert env["IDALIB_IDA_PATH"] == str(ida_dir)
+
+
+def test_idalib_mcp_stdio_config_defaults_to_shared_stdio(
+    monkeypatch, tmp_path
+) -> None:
+    module = _load_agent_runner_module()
+    ida_dir = tmp_path / "ida"
+    ida_dir.mkdir()
+
+    monkeypatch.setenv("SANDBOX_IDA_ENABLED", "1")
+    monkeypatch.setenv("SANDBOX_IDA_INSTALL_PATH", str(ida_dir))
+    monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "0")
+    monkeypatch.delenv("SANDBOX_IDALIB_MCP_COMMAND", raising=False)
+
+    command, args, env = module._idalib_mcp_stdio_config()
+    assert command == "uv"
+    assert args == ["run", "idalib-mcp", "--unsafe", "--stdio-shared"]
+    assert env["IDADIR"] == str(ida_dir)
 
 
 def test_ghidra_mcp_stdio_config_uses_install_dir_env(monkeypatch, tmp_path) -> None:

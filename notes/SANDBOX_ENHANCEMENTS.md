@@ -71,7 +71,7 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 ### B1. Runtime topology
 
 - Register `idalib-mcp` in the managed Codex MCP config using stdio transport:
-  - `uv run idalib-mcp --unsafe --stdio`
+  - `uv run idalib-mcp --unsafe --stdio-shared`
 - Ensure required Python package is present in sandbox:
   - `pip install idapro`
   - install `ida-pro-mcp` from `https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip` (not PyPI)
@@ -102,7 +102,7 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 - Keep existing local `verify_flag_candidate` MCP registration.
 - Add conditional stdio MCP registration for IDA:
   - `mcp_servers.ida_pro.command="uv"`
-  - `mcp_servers.ida_pro.args=["run", "idalib-mcp", "--unsafe", "--stdio"]`
+  - `mcp_servers.ida_pro.args=["run", "idalib-mcp", "--unsafe", "--stdio-shared"]`
   - `mcp_servers.ida_pro.env` includes `IDADIR`
 
 ### B5. Agent-facing docs
@@ -158,7 +158,7 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 ## 7) Suggested PR breakdown
 
 1. PR-1: control-plane settings + Docker mount/env conditional logic.
-2. PR-2: sandbox stdio `uv run idalib-mcp --unsafe --stdio` Codex MCP wiring.
+2. PR-2: sandbox stdio `uv run idalib-mcp --unsafe --stdio-shared` Codex MCP wiring.
 3. PR-3: tests + docs + operator runbook updates.
 
 ---

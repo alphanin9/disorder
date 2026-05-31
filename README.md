@@ -73,7 +73,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - Optional persistence for accepted EULA/registry state: set `SANDBOX_IDA_REGISTRY_HOST_PATH` to mount `/home/ctf/.idapro` read-write.
   - EULA acceptance is handled automatically when IDA is enabled (`SANDBOX_IDA_ACCEPT_EULA=true` by default); version keys are configurable via `SANDBOX_IDA_EULA_VERSIONS`.
   - Sandbox image installs `ida-pro-mcp` from `https://github.com/mrexodia/ida-pro-mcp/archive/refs/heads/main.zip` plus `idapro`.
-  - When enabled for Codex runs, sandbox registers `uv run idalib-mcp --unsafe --stdio` as a stdio MCP server and includes `IDADIR` in the Codex MCP server environment.
+  - When enabled for Codex runs, sandbox registers `uv run idalib-mcp --unsafe --stdio-shared` as a stdio MCP server and includes `IDADIR` in the Codex MCP server environment. Shared stdio lets Codex sub-agents reuse opened IDA database workers.
   - If `SANDBOX_IDA_HOST_PATH` is empty, IDA MCP is not exposed to the sandbox agent.
 - Ghidra MCP support for Codex runs is enabled by default:
   - Sandbox image installs `ghidra-headless-mcp` from `https://github.com/mrphrazer/ghidra-headless-mcp/archive/refs/heads/main.zip`.
