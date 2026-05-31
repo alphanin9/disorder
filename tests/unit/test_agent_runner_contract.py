@@ -343,6 +343,7 @@ def test_idalib_mcp_stdio_config_defaults_to_shared_stdio(
     monkeypatch.setenv("SANDBOX_IDA_INSTALL_PATH", str(ida_dir))
     monkeypatch.setenv("SANDBOX_IDA_ACCEPT_EULA", "0")
     monkeypatch.delenv("SANDBOX_IDALIB_MCP_COMMAND", raising=False)
+    monkeypatch.setattr(module.shutil, "which", lambda command: f"/usr/bin/{command}")
 
     command, args, env = module._idalib_mcp_stdio_config()
     assert command == "uv"
