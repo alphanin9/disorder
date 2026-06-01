@@ -188,6 +188,52 @@ export type CodexDeviceAuthPollResponse = {
   auth_status?: CodexAuthStatusResponse | null;
 };
 
+export type ClaudeAuthFile = {
+  id: string;
+  tag: string;
+  file_name: string;
+  sha256: string;
+  size_bytes: number;
+  uploaded_at: string;
+  source?: string | null;
+  health_status?: string | null;
+  last_checked_at?: string | null;
+  last_health_error?: string | null;
+  expires_at?: string | null;
+  usage_snapshot?: Record<string, unknown> | null;
+};
+
+export type ClaudeAuthTag = {
+  tag: string;
+  file_count: number;
+  files: ClaudeAuthFile[];
+};
+
+export type ClaudeAuthStatusResponse = {
+  configured: boolean;
+  active_tag: string | null;
+  tags: ClaudeAuthTag[];
+  health_status: string;
+  reauth_required: boolean;
+};
+
+export type ClaudeOAuthStartResponse = {
+  flow_id: string;
+  tag: string;
+  authorize_url: string;
+  expires_at: string;
+  status: string;
+};
+
+export type ClaudeOAuthCompleteResponse = {
+  flow_id: string;
+  tag: string;
+  status: "authorized" | "expired" | string;
+  message?: string | null;
+  auth_file?: ClaudeAuthFile | null;
+  auth_status?: ClaudeAuthStatusResponse | null;
+};
+
 export type RunResultPayload = {
   challenge_id: string;
   challenge_name: string;

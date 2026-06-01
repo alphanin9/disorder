@@ -86,7 +86,7 @@ RUN dpkg --add-architecture i386 && \
     xxd \
     zip
 
-RUN npm install -g @openai/codex
+RUN npm install -g @openai/codex @anthropic-ai/claude-code
 
 ENV GOBIN=/usr/local/bin
 RUN go install github.com/ffuf/ffuf/v2@latest && \

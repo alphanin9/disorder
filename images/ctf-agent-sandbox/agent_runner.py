@@ -53,6 +53,11 @@ def _codex_home_path() -> Path:
     return Path(os.getenv("CODEX_HOME") or (Path.home() / ".codex"))
 
 
+def _claude_home_path() -> Path:
+    configured = os.getenv("CLAUDE_CONFIG_DIR") or os.getenv("CLAUDE_HOME")
+    return Path(configured) if configured else (Path.home() / ".claude")
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -113,6 +118,20 @@ def _seed_writable_codex_home() -> None:
     if copied_skills > 0:
         print(
             f"[agent-runner] seeded {copied_skills} Codex skill files into {skills_dir}",
+            flush=True,
+        )
+
+
+def _seed_writable_claude_home() -> None:
+    claude_home = _claude_home_path()
+    claude_home.mkdir(parents=True, exist_ok=True)
+    auth_seed_dir = Path(
+        os.getenv("CLAUDE_AUTH_SEED_DIR", "/workspace/run/.auth_seed/claude")
+    )
+    copied = _copy_seed_tree(auth_seed_dir, claude_home, file_mode=0o600)
+    if copied > 0:
+        print(
+            f"[agent-runner] seeded {copied} Claude auth files into {claude_home}",
             flush=True,
         )
 
@@ -448,6 +467,25 @@ def _codex_auth_source() -> str | None:
     return None
 
 
+def _claude_auth_source() -> str | None:
+    for env_name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
+        if os.getenv(env_name):
+            return f"env:{env_name}"
+
+    claude_home = _claude_home_path()
+    cred_path = claude_home / ".credentials.json"
+    try:
+        if (
+            cred_path.exists()
+            and cred_path.is_file()
+            and cred_path.stat().st_size > 2
+        ):
+            return f"filesystem:{cred_path}"
+    except OSError:
+        pass
+    return None
+
+
 def _strip_managed_mcp_block(content: str) -> str:
     lines = content.splitlines()
     kept: list[str] = []
@@ -557,7 +595,7 @@ def _ghidra_mcp_stdio_config() -> tuple[str, list[str], dict[str, str]] | None:
         )
         return None
 
-    print("[agent-runner] Ghidra MCP configured for Codex stdio transport", flush=True)
+    print("[agent-runner] Ghidra MCP configured for stdio transport", flush=True)
     return command, args, {"GHIDRA_INSTALL_DIR": ghidra_install_path}
 
 
@@ -623,7 +661,7 @@ def _idalib_mcp_stdio_config() -> tuple[str, list[str], dict[str, str]] | None:
         "IDALIB_IDA_PATH": ida_install_path,
         "IDALIB_IDA_DIR": ida_install_path,
     }
-    print("[agent-runner] IDA MCP configured for Codex stdio transport", flush=True)
+    print("[agent-runner] IDA MCP configured for stdio transport", flush=True)
     return command, args, env
 
 
@@ -711,6 +749,83 @@ def _write_managed_codex_mcp_config(
     if config_path.exists():
         config_path.unlink()
         print(f"[agent-runner] removed empty Codex config at {config_path}", flush=True)
+
+
+def _claude_mcp_servers(
+    ida_config: tuple[str, list[str], dict[str, str]] | None = None,
+    ghidra_config: tuple[str, list[str], dict[str, str]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build the Claude Code ``mcpServers`` map.
+
+    Falls back to the CODEX_* MCP toggles so a single orchestrator-set flag
+    (for example CODEX_FLAG_SUBMIT_MCP_ENABLED) enables the matching server for
+    either backend.
+    """
+    servers: dict[str, dict[str, Any]] = {}
+
+    verify_enabled = _env_truthy(
+        "CLAUDE_FLAG_VERIFY_MCP_ENABLED",
+        default=_env_truthy("CODEX_FLAG_VERIFY_MCP_ENABLED", default=True),
+    )
+    if verify_enabled:
+        command = os.getenv(
+            "CLAUDE_FLAG_VERIFY_MCP_COMMAND",
+            os.getenv("CODEX_FLAG_VERIFY_MCP_COMMAND", "python"),
+        )
+        script = os.getenv(
+            "CLAUDE_FLAG_VERIFY_MCP_SCRIPT",
+            os.getenv("CODEX_FLAG_VERIFY_MCP_SCRIPT", "/usr/local/bin/flag_verify_mcp.py"),
+        )
+        servers["flag_verify"] = {
+            "command": command,
+            "args": [script, "--spec", SPEC_PATH.as_posix()],
+        }
+
+    submit_enabled = _env_truthy(
+        "CLAUDE_FLAG_SUBMIT_MCP_ENABLED",
+        default=_env_truthy("CODEX_FLAG_SUBMIT_MCP_ENABLED", default=False),
+    )
+    if submit_enabled:
+        command = os.getenv(
+            "CLAUDE_FLAG_SUBMIT_MCP_COMMAND",
+            os.getenv("CODEX_FLAG_SUBMIT_MCP_COMMAND", "python"),
+        )
+        script = os.getenv(
+            "CLAUDE_FLAG_SUBMIT_MCP_SCRIPT",
+            os.getenv("CODEX_FLAG_SUBMIT_MCP_SCRIPT", "/usr/local/bin/flag_submit_mcp.py"),
+        )
+        servers["flag_submit"] = {
+            "command": command,
+            "args": [script, "--spec", SPEC_PATH.as_posix()],
+        }
+
+    if ida_config:
+        command, args, env = ida_config
+        servers["ida_pro"] = {"command": command, "args": args, "env": env}
+    if ghidra_config:
+        command, args, env = ghidra_config
+        servers["ghidra"] = {"command": command, "args": args, "env": env}
+
+    return servers
+
+
+def _write_managed_claude_mcp_config(
+    ida_config: tuple[str, list[str], dict[str, str]] | None = None,
+    ghidra_config: tuple[str, list[str], dict[str, str]] | None = None,
+) -> Path | None:
+    servers = _claude_mcp_servers(ida_config=ida_config, ghidra_config=ghidra_config)
+    if not servers:
+        return None
+    config_path = RUN_DIR / ".claude_mcp.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": servers}, indent=2), encoding="utf-8"
+    )
+    print(
+        f"[agent-runner] wrote Claude MCP config at {config_path} "
+        f"({', '.join(sorted(servers))})",
+        flush=True,
+    )
+    return config_path
 
 
 def _accept_ida_eula(ida_install_path: str) -> bool:
@@ -862,19 +977,48 @@ def _resolve_backend_command(
         )
 
     command_template = os.getenv("CLAUDE_CODE_CLI_CMD")
-    if not command_template:
-        return [], None, "", invocation_env
-    formatted = command_template.format(
-        prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR)
+    if command_template:
+        formatted = command_template.format(
+            prompt_file=str(prompt_file), run_dir=str(RUN_DIR), chal_dir=str(CHAL_DIR)
+        )
+        command = shlex.split(formatted)
+        if model_override:
+            invocation_env.setdefault("ANTHROPIC_MODEL", model_override)
+        if extra_args:
+            command.extend(extra_args)
+        return command, None, "custom-claude-command", invocation_env
+
+    # Default headless Claude Code invocation: non-interactive, streaming JSON,
+    # all tool/permission prompts bypassed (the sandbox is the trust boundary).
+    # The prompt is fed via stdin. Challenge files live under CHAL_DIR (read-only),
+    # so expose them with --add-dir while the cwd stays the writable RUN_DIR.
+    command = [
+        "claude",
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--add-dir",
+        str(CHAL_DIR),
+    ]
+    ida_config = _idalib_mcp_stdio_config()
+    ghidra_config = _ghidra_mcp_stdio_config()
+    mcp_config_path = _write_managed_claude_mcp_config(
+        ida_config=ida_config, ghidra_config=ghidra_config
     )
-    command = shlex.split(formatted)
-    if profile_override:
-        command.extend(["--profile", profile_override])
+    if mcp_config_path is not None:
+        command.extend(["--mcp-config", str(mcp_config_path)])
     if model_override:
-        invocation_env.setdefault("ANTHROPIC_MODEL", model_override)
+        command.extend(["--model", model_override])
     if extra_args:
         command.extend(extra_args)
-    return command, None, "custom-claude-command", invocation_env
+    return (
+        command,
+        prompt_file.read_text(encoding="utf-8"),
+        "default-claude-command",
+        invocation_env,
+    )
 
 
 def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> int:
@@ -897,6 +1041,22 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
         _write_managed_codex_mcp_config(
             ida_config=ida_config, ghidra_config=ghidra_config
         )
+    elif backend == "claude_code":
+        auth_source = _claude_auth_source()
+        if auth_source is None:
+            message = (
+                "Claude Code authentication is missing. Provide ANTHROPIC_API_KEY or "
+                "CLAUDE_CODE_OAUTH_TOKEN, or complete Claude sign-in via the "
+                "control-plane auth API/UI so credentials are seeded into ~/.claude."
+            )
+            _write_readme("# Blocked\n\n" + message + "\n")
+            _write_result(
+                _blocked_result(
+                    spec, message, failure_reason_code="provider_quota_or_auth"
+                )
+            )
+            return 2
+        print(f"[agent-runner] claude auth source: {auth_source}", flush=True)
 
     if backend == "codex":
         backend_name = "Codex CLI"
@@ -1000,6 +1160,9 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     stdout_text = "".join(stdout_chunks)
     stderr_text = "".join(stderr_chunks)
 
+    if backend == "claude_code":
+        _write_claude_last_message(stdout_text)
+
     if returncode != 0:
         if stderr_text and not stream_stderr_live:
             print("[agent-runner] codex stderr tail:", file=sys.stderr, flush=True)
@@ -1026,6 +1189,31 @@ def _run_external_backend(spec: dict[str, Any], backend: str, prompt: str) -> in
     return returncode
 
 
+def _write_claude_last_message(stdout: str) -> None:
+    """Extract and persist the final assistant text from Claude's stream-json output.
+
+    Claude Code doesn't have an --output-last-message flag like Codex, so we parse
+    the stream-json stdout for the last ``result`` event and write it to a file that
+    the runner-loop snapshot machinery picks up as ``claude_last_message.txt``.
+    """
+    for line in reversed(stdout.splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            parsed = json.loads(stripped)
+        except ValueError:
+            continue
+        if not isinstance(parsed, dict) or parsed.get("type") != "result":
+            continue
+        result_text = parsed.get("result")
+        if isinstance(result_text, str) and result_text:
+            (RUN_DIR / "claude_last_message.txt").write_text(
+                result_text, encoding="utf-8"
+            )
+            return
+
+
 def _backend_failure_message(
     backend: str, returncode: int, stdout: str, stderr: str
 ) -> str:
@@ -1046,13 +1234,31 @@ def _backend_failure_message(
             )
         if "429" in output or "rate limit" in output:
             return "Codex request failed due to rate limiting. Retry later or use different credentials."
+    elif backend == "claude_code":
+        if any(
+            token in output
+            for token in (
+                "401",
+                "unauthorized",
+                "invalid api key",
+                "authentication",
+                "invalid_grant",
+                "oauth",
+            )
+        ):
+            return (
+                "Claude Code authentication failed. Re-run Claude sign-in via the "
+                "control-plane auth UI, or set ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN."
+            )
+        if "429" in output or "rate limit" in output:
+            return "Claude Code request failed due to rate limiting. Retry later or use different credentials."
 
     return f"Backend command failed with exit code {returncode}"
 
 
 def _backend_failure_reason_code(backend: str, stdout: str, stderr: str) -> str:
     output = f"{stdout}\n{stderr}".lower()
-    if backend == "codex":
+    if backend in {"codex", "claude_code"}:
         if any(
             token in output
             for token in (
@@ -1060,6 +1266,7 @@ def _backend_failure_reason_code(backend: str, stdout: str, stderr: str) -> str:
                 "unauthorized",
                 "invalid api key",
                 "authentication failed",
+                "invalid_grant",
                 "429",
                 "rate limit",
             )
@@ -1532,6 +1739,7 @@ def main() -> int:
         return 1
 
     _seed_writable_codex_home()
+    _seed_writable_claude_home()
     spec = _read_json(SPEC_PATH)
     backend = spec.get("backend", "mock")
     artifact_list = _list_challenge_artifacts()

@@ -9,6 +9,9 @@ import type {
   CodexDeviceAuthStartResponse,
   CodexAuthFile,
   CodexAuthStatusResponse,
+  ClaudeAuthStatusResponse,
+  ClaudeOAuthCompleteResponse,
+  ClaudeOAuthStartResponse,
   CTF,
   CTFCreateRequest,
   CTFdConfigResponse,
@@ -228,6 +231,49 @@ export async function deleteCodexAuthFile(fileId: string): Promise<CodexAuthStat
 
 export async function deleteCodexAuthTag(tag: string): Promise<CodexAuthStatusResponse> {
   return apiRequest<CodexAuthStatusResponse>(`/auth/codex/tags/${encodeURIComponent(tag)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getClaudeAuthStatus(): Promise<ClaudeAuthStatusResponse> {
+  return apiRequest<ClaudeAuthStatusResponse>("/auth/claude/status");
+}
+
+export async function startClaudeOAuth(tag: string): Promise<ClaudeOAuthStartResponse> {
+  return apiRequest<ClaudeOAuthStartResponse>("/auth/claude/oauth/start", {
+    method: "POST",
+    body: JSON.stringify({ tag }),
+  });
+}
+
+export async function completeClaudeOAuth(flowId: string, code: string): Promise<ClaudeOAuthCompleteResponse> {
+  return apiRequest<ClaudeOAuthCompleteResponse>(`/auth/claude/oauth/${flowId}/complete`, {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function checkClaudeAuthHealth(): Promise<ClaudeAuthStatusResponse> {
+  return apiRequest<ClaudeAuthStatusResponse>("/auth/claude/health-check", {
+    method: "POST",
+  });
+}
+
+export async function setClaudeAuthActiveTag(tag: string): Promise<ClaudeAuthStatusResponse> {
+  return apiRequest<ClaudeAuthStatusResponse>("/auth/claude/active-tag", {
+    method: "POST",
+    body: JSON.stringify({ tag }),
+  });
+}
+
+export async function deleteClaudeAuthFile(fileId: string): Promise<ClaudeAuthStatusResponse> {
+  return apiRequest<ClaudeAuthStatusResponse>(`/auth/claude/files/${fileId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteClaudeAuthTag(tag: string): Promise<ClaudeAuthStatusResponse> {
+  return apiRequest<ClaudeAuthStatusResponse>(`/auth/claude/tags/${encodeURIComponent(tag)}`, {
     method: "DELETE",
   });
 }

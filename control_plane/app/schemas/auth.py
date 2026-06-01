@@ -64,3 +64,64 @@ class CodexDeviceAuthPollResponse(BaseModel):
     message: str | None = None
     auth_file: CodexAuthFileRead | None = None
     auth_status: CodexAuthStatusResponse | None = None
+
+
+# ----- Claude Code (Anthropic) auth -----------------------------------------
+
+
+class ClaudeAuthFileRead(BaseModel):
+    id: str
+    tag: str
+    file_name: str
+    sha256: str
+    size_bytes: int
+    uploaded_at: datetime
+    source: str | None = None
+    health_status: str | None = None
+    last_checked_at: datetime | None = None
+    last_health_error: str | None = None
+    expires_at: datetime | None = None
+    usage_snapshot: dict[str, Any] | None = None
+
+
+class ClaudeAuthTagRead(BaseModel):
+    tag: str
+    file_count: int
+    files: list[ClaudeAuthFileRead]
+
+
+class ClaudeAuthStatusResponse(BaseModel):
+    configured: bool
+    active_tag: str | None = None
+    tags: list[ClaudeAuthTagRead] = Field(default_factory=list)
+    health_status: str = "unknown"
+    reauth_required: bool = False
+
+
+class ClaudeAuthSetActiveTagRequest(BaseModel):
+    tag: str
+
+
+class ClaudeOAuthStartRequest(BaseModel):
+    tag: str = "default"
+
+
+class ClaudeOAuthStartResponse(BaseModel):
+    flow_id: str
+    tag: str
+    authorize_url: str
+    expires_at: datetime
+    status: str = "pending"
+
+
+class ClaudeOAuthCompleteRequest(BaseModel):
+    code: str = Field(min_length=1)
+
+
+class ClaudeOAuthCompleteResponse(BaseModel):
+    flow_id: str
+    tag: str
+    status: str
+    message: str | None = None
+    auth_file: ClaudeAuthFileRead | None = None
+    auth_status: ClaudeAuthStatusResponse | None = None

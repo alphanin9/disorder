@@ -9,6 +9,7 @@ import type { CTFCreateRequest, CTFUpdateRequest } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { inputClasses } from "@/components/ui/forms";
+import { ClaudeAuthCard } from "@/features/integrations/ClaudeAuthCard";
 import { CTFdImportCard } from "@/features/integrations/CTFdImportCard";
 import { CodexAuthCard } from "@/features/integrations/CodexAuthCard";
 
@@ -278,6 +279,7 @@ export function CTFsPage() {
         ) : null}
         <CTFdImportCard />
         <CodexAuthCard />
+        <ClaudeAuthCard />
       </div>
     </div>
   );

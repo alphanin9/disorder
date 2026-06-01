@@ -45,7 +45,9 @@ class Settings(BaseSettings):
             "OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_ORG_ID,OPENAI_PROJECT_ID,"
             "CODEX_API_KEY,CODEX_BASE_URL,CODEX_CLI_CMD,"
             "CODEX_JSONL_LIVE_LOG_ONLY,CODEX_FLAG_VERIFY_MCP_ENABLED,"
-            "ANTHROPIC_API_KEY,CLAUDE_CODE_CLI_CMD"
+            "ANTHROPIC_API_KEY,ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,"
+            "CLAUDE_CODE_OAUTH_TOKEN,CLAUDE_CODE_CLI_CMD,"
+            "CLAUDE_FLAG_VERIFY_MCP_ENABLED"
         )
     )
     sandbox_codex_auth_include: str = Field(
@@ -66,6 +68,32 @@ class Settings(BaseSettings):
     codex_auth_device_flow_timeout_seconds: int = Field(default=15 * 60)
     codex_auth_limit_probe_enabled: bool = Field(default=True)
     codex_auth_limit_probe_model: str = Field(default="gpt-5.3-codex")
+    # Claude Code (Anthropic) auth. The OAuth credential store reuses the Codex
+    # Fernet cipher (codex_auth_encryption_key / derived dev key). Endpoints are
+    # configurable because Anthropic's OAuth hosts have shifted historically;
+    # defaults reflect the public Claude Code authorization-code + PKCE flow.
+    sandbox_claude_auth_tag: str | None = Field(default=None)
+    claude_auth_health_check_interval_seconds: int = Field(default=6 * 60 * 60)
+    claude_auth_device_flow_timeout_seconds: int = Field(default=15 * 60)
+    claude_auth_usage_probe_enabled: bool = Field(default=True)
+    claude_oauth_client_id: str = Field(
+        default="9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    )
+    claude_oauth_authorize_url: str = Field(
+        default="https://claude.ai/oauth/authorize"
+    )
+    claude_oauth_token_url: str = Field(
+        default="https://console.anthropic.com/v1/oauth/token"
+    )
+    claude_oauth_redirect_uri: str = Field(
+        default="https://console.anthropic.com/oauth/code/callback"
+    )
+    claude_oauth_scopes: str = Field(
+        default="org:create_api_key user:profile user:inference"
+    )
+    claude_oauth_usage_url: str = Field(
+        default="https://api.anthropic.com/api/oauth/usage"
+    )
     ctfd_auto_submit_enabled: bool = Field(default=True)
     ctfd_auto_submit_max_attempts_per_run: int = Field(default=8)
     ctfd_auto_submit_retry_count: int = Field(default=0)
