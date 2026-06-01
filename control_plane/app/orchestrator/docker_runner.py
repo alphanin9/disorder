@@ -33,6 +33,10 @@ from control_plane.app.services.auth_service import (
     CodexAuthMaterial,
     get_codex_auth_material_for_tag,
 )
+from control_plane.app.services.claude_auth_service import (
+    ClaudeAuthMaterial,
+    get_claude_auth_material_for_tag,
+)
 from control_plane.app.services.auto_continuation_service import (
     evaluate_and_queue_auto_continuation,
 )
@@ -143,6 +147,9 @@ class DockerRunner:
             auth_mount_volume = self._sandbox_auth_volumes(
                 db=db, run_dir=run_dir, host_run_dir=host_run_dir
             )
+            claude_auth_mount_volume = self._sandbox_claude_auth_volumes(
+                db=db, run_dir=run_dir, host_run_dir=host_run_dir
+            )
             skills_mount_volume = self._sandbox_codex_skills_volumes()
             ida_mount_volume, ida_env = self._sandbox_ida_mount_and_env()
             continuation_mount_volume = self._sandbox_continuation_volume(
@@ -154,6 +161,7 @@ class DockerRunner:
                 str(host_run_mount): {"bind": "/workspace/run", "mode": "rw"},
             }
             volumes.update(auth_mount_volume)
+            volumes.update(claude_auth_mount_volume)
             volumes.update(skills_mount_volume)
             volumes.update(ida_mount_volume)
             volumes.update(continuation_mount_volume)
@@ -626,6 +634,10 @@ class DockerRunner:
         env.setdefault(
             "CODEX_SKILLS_SEED_DIR", "/workspace/run/.skill_seed/codex/skills"
         )
+        # CLAUDE_CONFIG_DIR is the real Claude Code env var that relocates its
+        # config + ~/.claude/.credentials.json. The sandbox seeds OAuth creds here.
+        env.setdefault("CLAUDE_CONFIG_DIR", "/home/ctf/.claude")
+        env.setdefault("CLAUDE_AUTH_SEED_DIR", "/workspace/run/.auth_seed/claude")
         control_plane_url = (self.settings.sandbox_control_plane_url or "").strip()
         if control_plane_url:
             env.setdefault("DISORDER_CONTROL_PLANE_URL", control_plane_url.rstrip("/"))
@@ -718,6 +730,42 @@ class DockerRunner:
                 }
             }
         return {}
+
+    def _sandbox_claude_auth_volumes(
+        self, db: Session, run_dir: Path, host_run_dir: Path
+    ) -> dict[str, dict[str, str]]:
+        staged_dir = run_dir / ".auth" / "claude"
+        staged_dir.mkdir(parents=True, exist_ok=True)
+
+        requested_tag = self.settings.sandbox_claude_auth_tag
+        _, auth_material = get_claude_auth_material_for_tag(
+            db, requested_tag=requested_tag
+        )
+        staged_count = self._stage_claude_auth_material(
+            staged_dir=staged_dir, files=auth_material
+        )
+        if staged_count > 0:
+            return {
+                str(host_run_dir / ".auth" / "claude"): {
+                    "bind": "/workspace/run/.auth_seed/claude",
+                    "mode": "ro",
+                }
+            }
+        return {}
+
+    def _stage_claude_auth_material(
+        self, staged_dir: Path, files: list[ClaudeAuthMaterial]
+    ) -> int:
+        copied = 0
+        for file_entry in files:
+            safe_name = Path(file_entry.file_name.replace("\\", "/")).name
+            if not safe_name:
+                continue
+            target = staged_dir / safe_name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(file_entry.content)
+            copied += 1
+        return copied
 
     def _sandbox_codex_skills_volumes(self) -> dict[str, dict[str, str]]:
         host_path = (self.settings.sandbox_codex_skills_host_path or "").strip()

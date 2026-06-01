@@ -108,7 +108,107 @@ function formatCodexJsonLine(line: string): string {
     return `[${eventType}] ${itemType || "item"}`;
   }
 
+  // Claude Code stream-json events.
+  if (eventType === "assistant" || eventType === "user") {
+    const message = payload.message;
+    if (message && typeof message === "object") {
+      const content = (message as JsonObject).content;
+      if (Array.isArray(content)) {
+        const parts: string[] = [];
+        for (const block of content) {
+          if (!block || typeof block !== "object") {
+            continue;
+          }
+          const blockObj = block as JsonObject;
+          const blockType = asString(blockObj.type);
+          if (blockType === "text") {
+            const text = asString(blockObj.text);
+            if (text) {
+              parts.push(`[agent] ${text}`);
+            }
+          } else if (blockType === "thinking") {
+            const text = asString(blockObj.thinking);
+            if (text) {
+              parts.push(`[thinking] ${truncateText(text)}`);
+            }
+          } else if (blockType === "tool_use") {
+            parts.push(`[tool] ${asString(blockObj.name)} ${JSON.stringify(blockObj.input ?? {})}`);
+          } else if (blockType === "tool_result") {
+            const rendered = renderClaudeToolResultContent(blockObj.content);
+            const errTag = blockObj.is_error === true ? " ERR" : "";
+            parts.push(`[tool_result${errTag}] ${truncateText(rendered)}`);
+          }
+        }
+        const joined = parts.filter(Boolean).join("\n");
+        if (joined) {
+          return joined;
+        }
+      }
+    }
+    return line;
+  }
+  if (eventType === "system") {
+    const subtype = asString(payload.subtype) || "event";
+    if (subtype === "init") {
+      const model = asString(payload.model);
+      const detail = model ? ` model=${model}` : "";
+      return `[system] init${detail}`;
+    }
+    return `[system] ${subtype}`;
+  }
+  if (eventType === "result") {
+    const resultText = asString(payload.result) || asString(payload.subtype);
+    return `[result] ${truncateText(resultText)}`;
+  }
+  if (eventType === "rate_limit_event") {
+    const info = payload.rate_limit_info;
+    if (info && typeof info === "object") {
+      const infoObj = info as JsonObject;
+      const kind = asString(infoObj.rateLimitType) || "rate_limit";
+      const status = asString(infoObj.status);
+      const utilizationRaw = infoObj.utilization;
+      const utilization =
+        typeof utilizationRaw === "number" ? ` ${Math.round(utilizationRaw * 100)}%` : "";
+      const statusText = status ? ` (${status})` : "";
+      return `[rate_limit] ${kind}${utilization}${statusText}`;
+    }
+    return "[rate_limit]";
+  }
+
   return line;
+}
+
+function renderClaudeToolResultContent(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const items: string[] = [];
+    for (const block of value) {
+      if (!block || typeof block !== "object") {
+        continue;
+      }
+      const blockObj = block as JsonObject;
+      const blockType = asString(blockObj.type);
+      if (blockType === "text") {
+        const text = asString(blockObj.text);
+        if (text) {
+          items.push(text);
+        }
+      } else if (blockType === "tool_reference") {
+        const name = asString(blockObj.tool_name);
+        if (name) {
+          items.push(name);
+        }
+      } else {
+        items.push(JSON.stringify(blockObj));
+      }
+    }
+    if (items.length > 0) {
+      return items.join("\n");
+    }
+  }
+  return JSON.stringify(value ?? "");
 }
 
 function renderParsedLogs(rawLogs: string): string {
