@@ -55,6 +55,10 @@ from control_plane.app.services.auth_service import (
 STORE_NAME = "claude_auth_store"
 CREDENTIALS_FILE_NAME = ".credentials.json"
 OAUTH_BETA_HEADER = "oauth-2025-04-20"
+# The Claude Code OAuth token endpoint rejects requests with httpx's default
+# User-Agent; the CLI sends a Claude-Code-style UA, which we mirror so token
+# exchange and refresh succeed.
+CLAUDE_OAUTH_USER_AGENT = "claude-cli/disorder"
 # Refresh slightly early so a token isn't handed to a sandbox moments before it
 # expires (matches claude-swap's 5 minute buffer).
 TOKEN_EXPIRY_BUFFER_SECONDS = 5 * 60
@@ -370,7 +374,11 @@ def start_claude_oauth(db: Session, *, tag: str) -> ClaudeOAuthStartResponse:
 def _request_claude_token(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     with httpx.Client(
-        timeout=httpx.Timeout(20.0), headers={"Accept": "application/json"}
+        timeout=httpx.Timeout(20.0),
+        headers={
+            "Accept": "application/json",
+            "User-Agent": CLAUDE_OAUTH_USER_AGENT,
+        },
     ) as client:
         response = client.post(
             settings.claude_oauth_token_url,
@@ -489,7 +497,10 @@ def complete_claude_oauth(
 def _fetch_claude_usage(access_token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
-        with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
+        with httpx.Client(
+            timeout=httpx.Timeout(10.0),
+            headers={"User-Agent": CLAUDE_OAUTH_USER_AGENT},
+        ) as client:
             response = client.get(
                 settings.claude_oauth_usage_url,
                 headers={
