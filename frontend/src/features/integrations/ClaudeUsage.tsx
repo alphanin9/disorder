@@ -143,10 +143,11 @@ function UsageBar({ item }: { item: UsageWindowItem }) {
 }
 
 function ExtraUsageLine({ extraUsage }: { extraUsage: ExtraUsage }) {
-  const utilization = extraUsage.utilization === null ? null : Math.max(0, Math.min(100, Math.round(extraUsage.utilization)));
+  const utilization =
+    extraUsage.utilization == null ? null : Math.max(0, Math.min(100, Math.round(extraUsage.utilization)));
   const currency = extraUsage.currency ? extraUsage.currency.toUpperCase() : null;
   const creditText =
-    extraUsage.used_credits !== null && extraUsage.monthly_limit !== null
+    extraUsage.used_credits != null && extraUsage.monthly_limit != null
       ? `${extraUsage.used_credits} / ${extraUsage.monthly_limit}${currency ? ` ${currency}` : ""}`
       : null;
 
@@ -165,20 +166,21 @@ export function ClaudeUsage({ file }: { file: ClaudeAuthFile }) {
     return null;
   }
 
-  const windows: UsageWindowItem[] = [
+  const allWindows: UsageWindowItem[] = [
     { key: "five_hour", label: "5h window", window: snapshot.five_hour ?? {} },
     { key: "seven_day", label: "7d window", window: snapshot.seven_day ?? {} },
     { key: "seven_day_sonnet", label: "7d Sonnet", window: snapshot.seven_day_sonnet ?? {} },
     { key: "seven_day_opus", label: "7d Opus", window: snapshot.seven_day_opus ?? {} },
     { key: "seven_day_oauth_apps", label: "7d OAuth apps", window: snapshot.seven_day_oauth_apps ?? {} },
     { key: "seven_day_cowork", label: "7d Cowork", window: snapshot.seven_day_cowork ?? {} },
-  ].filter((item) => item.window.utilization !== null && item.window.utilization !== undefined);
+  ];
+  const windows = allWindows.filter((item) => item.window.utilization != null);
 
   const showExtraUsage = Boolean(
     snapshot.extra_usage &&
       (snapshot.extra_usage.is_enabled ||
-        snapshot.extra_usage.utilization !== null ||
-        snapshot.extra_usage.used_credits !== null),
+        snapshot.extra_usage.utilization != null ||
+        snapshot.extra_usage.used_credits != null),
   );
 
   if (windows.length === 0 && !showExtraUsage) {
