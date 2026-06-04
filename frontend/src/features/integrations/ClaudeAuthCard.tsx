@@ -15,6 +15,7 @@ import type { ClaudeOAuthStartResponse } from "@/api/models";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { inputClasses } from "@/components/ui/forms";
+import { ClaudeUsage } from "@/features/integrations/ClaudeUsage";
 
 export function ClaudeAuthCard() {
   const queryClient = useQueryClient();
@@ -248,6 +249,7 @@ export function ClaudeAuthCard() {
                         </button>
                       </div>
                       {fileInfo.last_health_error ? <p className="mt-2 text-danger">Error: {fileInfo.last_health_error}</p> : null}
+                      <ClaudeUsage file={fileInfo} />
                     </li>
                   ))}
                 </ul>
