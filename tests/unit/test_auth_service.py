@@ -1,10 +1,14 @@
 import base64
 import json
 
+import httpx
+
 from control_plane.app.services.auth_service import (
     CODEX_DEVICE_VERIFICATION_URI,
     _build_codex_auth_json,
+    _codex_probe_models,
     _parse_quota_snapshot,
+    _probe_codex_limits,
     _quota_status,
     is_allowed_auth_file_name,
     normalize_auth_tag,
@@ -98,3 +102,73 @@ def test_parse_quota_snapshot_from_codex_headers() -> None:
 def test_quota_status_detects_exhausted_and_rate_limited() -> None:
     assert _quota_status({"status": 429, "primary": {}, "secondary": {}}) == "rate_limited"
     assert _quota_status({"status": 200, "primary": {"used_percent": 100}, "secondary": {}}) == "exhausted"
+
+
+def test_codex_probe_models_prefers_configured_model_then_fallbacks() -> None:
+    assert _codex_probe_models(
+        "gpt-5.3-codex", "gpt-5.5,gpt-5.4,gpt-5.3-codex"
+    ) == [
+        "gpt-5.3-codex",
+        "gpt-5.5",
+        "gpt-5.4",
+    ]
+
+
+def test_probe_codex_limits_falls_back_from_unsupported_model(monkeypatch) -> None:
+    calls: list[str] = []
+    responses = [
+        httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": "model_not_supported_with_chatgpt_account",
+                    "message": "model is not supported when using codex with a chatgpt account",
+                }
+            },
+        ),
+        httpx.Response(
+            200,
+            headers={
+                "x-codex-primary-used-percent": "15",
+                "x-codex-primary-window-minutes": "300",
+                "x-codex-secondary-used-percent": "30",
+                "x-codex-secondary-window-minutes": "10080",
+            },
+        ),
+    ]
+
+    class FakeStream:
+        def __init__(self, response: httpx.Response) -> None:
+            self.response = response
+
+        def __enter__(self) -> httpx.Response:
+            return self.response
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    class FakeClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> "FakeClient":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> FakeStream:
+            body = kwargs["json"]
+            calls.append(body["model"])
+            return FakeStream(responses.pop(0))
+
+    monkeypatch.setattr("control_plane.app.services.auth_service.httpx.Client", FakeClient)
+    snapshot = _probe_codex_limits(
+        {"access_token": "access-token", "account_id": "acct_123"},
+        model="gpt-5.3-codex",
+        fallback_models="gpt-5.5,gpt-5.4",
+    )
+
+    assert calls == ["gpt-5.3-codex", "gpt-5.5"]
+    assert snapshot["model"] == "gpt-5.5"
+    assert snapshot["primary"]["used_percent"] == 15

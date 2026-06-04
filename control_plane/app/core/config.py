@@ -67,7 +67,10 @@ class Settings(BaseSettings):
     codex_auth_health_check_interval_seconds: int = Field(default=6 * 60 * 60)
     codex_auth_device_flow_timeout_seconds: int = Field(default=15 * 60)
     codex_auth_limit_probe_enabled: bool = Field(default=True)
-    codex_auth_limit_probe_model: str = Field(default="gpt-5.3-codex")
+    codex_auth_limit_probe_model: str = Field(default="gpt-5.5")
+    codex_auth_limit_probe_fallback_models: str = Field(
+        default="gpt-5.5,gpt-5.4,gpt-5.3-codex,gpt-5.2-codex,gpt-5-codex"
+    )
     # Claude Code (Anthropic) auth. The OAuth credential store reuses the Codex
     # Fernet cipher (codex_auth_encryption_key / derived dev key). Endpoints are
     # configurable because Anthropic's OAuth hosts have shifted historically;

@@ -61,7 +61,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - `OPENAI_API_KEY` (or `CODEX_API_KEY`) in control plane environment, or
   - device sign-in from the web UI (`CTFs` page) or API (`/auth/codex/device/*`).
 - Device sign-in stores a tagged `auth.json` in the encrypted control-plane auth store. Manual auth-file upload remains available as a fallback.
-- Auth checks also refresh the OAuth token and, by default, run a small Codex quota probe (`CODEX_AUTH_LIMIT_PROBE_ENABLED=0` disables this).
+- Auth checks also refresh the OAuth token and, by default, run a small Codex quota probe (`CODEX_AUTH_LIMIT_PROBE_ENABLED=0` disables this). The probe tries `CODEX_AUTH_LIMIT_PROBE_MODEL` first, then `CODEX_AUTH_LIMIT_PROBE_FALLBACK_MODELS` so deprecated model names do not break usage checks.
 - Stored auth files are mounted read-only as seed material and copied into writable `CODEX_HOME` at sandbox startup.
 - Optional same-run retry/reflection (`runner_loop_policy`) reuses the writable `/workspace/run` workspace, snapshots each attempt under `runs/<run_id>/run/attempts/`, and records summary metadata in `runner_loop_state.json` plus run result finalization metadata.
 - Sandbox env passthrough is controlled by `SANDBOX_ENV_PASSTHROUGH`.

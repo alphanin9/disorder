@@ -37,6 +37,13 @@ CODEX_DEVICE_REDIRECT_URI = "https://auth.openai.com/deviceauth/callback"
 CODEX_BACKEND_BASE_URL = "https://chatgpt.com/backend-api"
 CODEX_JWT_AUTH_CLAIM = "https://api.openai.com/auth"
 AUTH_JSON_FILE_NAME = "auth.json"
+DEFAULT_CODEX_LIMIT_PROBE_MODELS = (
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+    "gpt-5-codex",
+)
 
 
 @dataclass(slots=True)
@@ -495,7 +502,65 @@ def _extract_error_message(response: httpx.Response) -> str:
     return f"HTTP {response.status_code}"
 
 
-def _probe_codex_limits(tokens: dict[str, Any], *, model: str) -> dict[str, Any]:
+def _codex_probe_models(
+    primary_model: str | None, fallback_models: str | None = None
+) -> list[str]:
+    candidates: list[str] = []
+    if isinstance(primary_model, str) and primary_model.strip():
+        candidates.append(primary_model.strip())
+
+    fallback_values = (
+        [value.strip() for value in fallback_models.split(",")]
+        if isinstance(fallback_models, str) and fallback_models.strip()
+        else list(DEFAULT_CODEX_LIMIT_PROBE_MODELS)
+    )
+    candidates.extend(value for value in fallback_values if value)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped
+
+
+def _is_unsupported_codex_model_response(response: httpx.Response) -> bool:
+    if response.status_code not in {400, 404}:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {"message": response.text}
+
+    values: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, dict):
+            for nested in value.values():
+                collect(nested)
+
+    collect(payload)
+    haystack = " ".join(values).lower()
+    unsupported_markers = (
+        "model_not_supported_with_chatgpt_account",
+        "model is not supported",
+        "model_not_found",
+        "does not exist or you do not have access",
+        "not currently available for this chatgpt account",
+    )
+    return any(marker in haystack for marker in unsupported_markers)
+
+
+def _probe_codex_limits(
+    tokens: dict[str, Any],
+    *,
+    model: str,
+    fallback_models: str | None = None,
+) -> dict[str, Any]:
     access_token = str(tokens.get("access_token") or "").strip()
     account_id = _extract_account_id_from_tokens(tokens)
     if not access_token:
@@ -503,46 +568,57 @@ def _probe_codex_limits(tokens: dict[str, Any], *, model: str) -> dict[str, Any]
     if not account_id:
         raise ValueError("Stored auth.json is missing ChatGPT account id")
 
-    body = {
-        "model": model,
-        "stream": True,
-        "store": False,
-        "include": ["reasoning.encrypted_content"],
-        "instructions": "You are a quota probe. Respond with ok.",
-        "input": [
-            {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": "quota ping"}],
-            }
-        ],
-        "reasoning": {"effort": "none", "summary": "auto"},
-        "text": {"verbosity": "low"},
-    }
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "chatgpt-account-id": account_id,
-        "OpenAI-Beta": "responses=experimental",
-        "originator": "codex_cli_rs",
-        "accept": "text/event-stream",
-        "content-type": "application/json",
-    }
-    with httpx.Client(timeout=httpx.Timeout(20.0), headers={"Accept": "application/json"}) as client:
-        with client.stream(
-            "POST",
-            f"{CODEX_BACKEND_BASE_URL}/codex/responses",
-            headers=headers,
-            json=body,
-        ) as response:
-            snapshot = _parse_quota_snapshot(response.headers, status_code=response.status_code, model=model)
-            if snapshot:
+    last_error: str | None = None
+    for candidate_model in _codex_probe_models(model, fallback_models):
+        body = {
+            "model": candidate_model,
+            "stream": True,
+            "store": False,
+            "include": ["reasoning.encrypted_content"],
+            "instructions": "You are a quota probe. Respond with ok.",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "quota ping"}],
+                }
+            ],
+            "reasoning": {"effort": "none", "summary": "auto"},
+            "text": {"verbosity": "low"},
+        }
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "chatgpt-account-id": account_id,
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "accept": "text/event-stream",
+            "content-type": "application/json",
+        }
+        with httpx.Client(timeout=httpx.Timeout(20.0), headers={"Accept": "application/json"}) as client:
+            with client.stream(
+                "POST",
+                f"{CODEX_BACKEND_BASE_URL}/codex/responses",
+                headers=headers,
+                json=body,
+            ) as response:
+                snapshot = _parse_quota_snapshot(
+                    response.headers,
+                    status_code=response.status_code,
+                    model=candidate_model,
+                )
+                if snapshot:
+                    response.close()
+                    return snapshot
+                if response.status_code >= 400:
+                    response.read()
+                    message = _extract_error_message(response)
+                    if _is_unsupported_codex_model_response(response):
+                        last_error = message
+                        continue
+                    raise ValueError(message)
                 response.close()
-                return snapshot
-            if response.status_code >= 400:
-                response.read()
-                raise ValueError(_extract_error_message(response))
-            response.close()
-    raise ValueError("Codex limit probe response did not include quota headers")
+                last_error = "Codex limit probe response did not include quota headers"
+    raise ValueError(last_error or "Codex limit probe response did not include quota headers")
 
 
 def _mark_file_health(
@@ -619,6 +695,7 @@ def check_codex_auth_health(db: Session, *, force: bool = False) -> CodexAuthSta
                     quota_snapshot = _probe_codex_limits(
                         {**existing_tokens, **refreshed},
                         model=settings.codex_auth_limit_probe_model,
+                        fallback_models=settings.codex_auth_limit_probe_fallback_models,
                     )
                     limit_status = _quota_status(quota_snapshot)
                 except Exception as limit_exc:  # noqa: BLE001
