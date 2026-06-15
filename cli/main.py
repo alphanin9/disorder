@@ -278,6 +278,9 @@ def run_challenge(
         False, "--local-deploy", help="Enable local docker compose deploy if present"
     ),
     model: str | None = typer.Option(None, "--model", help="Backend model override"),
+    reasoning_effort: str | None = typer.Option(
+        None, "--reasoning-effort", help="low|medium|high|xhigh (default: medium)"
+    ),
     profile: str | None = typer.Option(
         None, "--profile", help="Backend profile override"
     ),
@@ -369,6 +372,8 @@ def run_challenge(
         "backend": backend,
         "local_deploy_enabled": local_deploy,
     }
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
     agent_invocation_payload = _build_agent_invocation_payload(
         model=model,
         profile=profile,
