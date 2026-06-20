@@ -73,8 +73,11 @@ class Settings(BaseSettings):
     )
     # Claude Code (Anthropic) auth. The OAuth credential store reuses the Codex
     # Fernet cipher (codex_auth_encryption_key / derived dev key). Endpoints are
-    # configurable because Anthropic's OAuth hosts have shifted historically;
-    # defaults reflect the public Claude Code authorization-code + PKCE flow.
+    # configurable because Anthropic's OAuth hosts have shifted historically:
+    # the token endpoint and redirect callback moved from console.anthropic.com
+    # to platform.claude.com (the old console token URL now 404s), which is what
+    # the current Claude Code CLI (v2.1.x) and claude-swap use. Defaults reflect
+    # that public authorization-code + PKCE flow.
     sandbox_claude_auth_tag: str | None = Field(default=None)
     claude_auth_health_check_interval_seconds: int = Field(default=6 * 60 * 60)
     claude_auth_device_flow_timeout_seconds: int = Field(default=15 * 60)
@@ -86,10 +89,10 @@ class Settings(BaseSettings):
         default="https://claude.ai/oauth/authorize"
     )
     claude_oauth_token_url: str = Field(
-        default="https://console.anthropic.com/v1/oauth/token"
+        default="https://platform.claude.com/v1/oauth/token"
     )
     claude_oauth_redirect_uri: str = Field(
-        default="https://console.anthropic.com/oauth/code/callback"
+        default="https://platform.claude.com/oauth/code/callback"
     )
     claude_oauth_scopes: str = Field(
         default="org:create_api_key user:profile user:inference"
