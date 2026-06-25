@@ -20,6 +20,9 @@ import type {
   CTFdSyncResponse,
   CTFListResponse,
   CTFUpdateRequest,
+  RCTFPerCtfConfigResponse,
+  RCTFSyncRequest,
+  RCTFSyncResponse,
   RunContinueRequest,
   RunCreateRequest,
   RunListResponse,
@@ -104,6 +107,23 @@ export async function syncCtfd(payload: CTFdSyncRequest): Promise<CTFdSyncRespon
   return apiRequest<CTFdSyncResponse>("/integrations/ctfd/sync", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function syncRctf(payload: RCTFSyncRequest): Promise<RCTFSyncResponse> {
+  return apiRequest<RCTFSyncResponse>("/integrations/rctf/sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getCtfRctfConfig(ctfId: string): Promise<RCTFPerCtfConfigResponse> {
+  return apiRequest<RCTFPerCtfConfigResponse>(`/ctfs/${ctfId}/integrations/rctf/config`);
+}
+
+export async function clearCtfRctfTeamToken(ctfId: string): Promise<RCTFPerCtfConfigResponse> {
+  return apiRequest<RCTFPerCtfConfigResponse>(`/ctfs/${ctfId}/integrations/rctf/team-token`, {
+    method: "DELETE",
   });
 }
 

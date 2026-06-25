@@ -12,6 +12,11 @@
   - session cookie is treated as one-time input and is not persisted.
   - response: `{ "synced": <int>, "platform": "ctfd" }`
 - `GET /integrations/ctfd/config`
+- `POST /integrations/rctf/sync`
+  - body: `{ "base_url": "https://...", "team_token": "..." }`
+  - `base_url` is **required** (it identifies the CTF). `team_token` may be omitted on re-sync if previously configured (it is stored encrypted per CTF).
+  - rCTF (otter-sec fork) authenticates with a single team token exchanged for a bearer `authToken`.
+  - response: `{ "synced": <int>, "platform": "rctf", "ctf_id": "<uuid>", "ctf_slug": "...", "has_team_token": <bool> }`
 
 ## Auth
 - `GET /auth/codex/status`
@@ -38,6 +43,8 @@
 - `GET /ctfs/{ctf_id}`
 - `PATCH /ctfs/{ctf_id}`
 - `DELETE /ctfs/{ctf_id}` (also deletes associated challenges/runs)
+- `GET /ctfs/{ctf_id}/integrations/rctf/config`
+- `DELETE /ctfs/{ctf_id}/integrations/rctf/team-token`
 
 ## Runs
 - `GET /runs?active_only=true&status=running&challenge_id=<uuid>&limit=100`

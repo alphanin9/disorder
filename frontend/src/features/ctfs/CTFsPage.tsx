@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { inputClasses } from "@/components/ui/forms";
 import { ClaudeAuthCard } from "@/features/integrations/ClaudeAuthCard";
 import { CTFdImportCard } from "@/features/integrations/CTFdImportCard";
+import { RCTFImportCard } from "@/features/integrations/RCTFImportCard";
 import { CodexAuthCard } from "@/features/integrations/CodexAuthCard";
 
 const ctfFormSchema = z.object({
@@ -278,6 +279,7 @@ export function CTFsPage() {
           </Card>
         ) : null}
         <CTFdImportCard />
+        <RCTFImportCard />
         <CodexAuthCard />
         <ClaudeAuthCard />
       </div>
