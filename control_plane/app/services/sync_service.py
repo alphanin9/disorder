@@ -220,11 +220,10 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
 
 
 def sync_rctf_challenges(db: Session, request: RCTFSyncRequest) -> dict:
-    base_url = str(request.base_url) if request.base_url else None
+    # base_url is required by RCTFSyncRequest; it identifies the CTF whose
+    # stored (encrypted) team token should be reused when team_token is omitted.
+    base_url = str(request.base_url)
     team_token = (request.team_token or "").strip() or None
-
-    if not base_url:
-        raise ValueError("rCTF integration is not configured. Provide base_url.")
 
     ctf_event = ensure_ctf_for_sync(db, base_url=base_url, platform="rctf")
     per_ctf_creds = get_rctf_decrypted_credentials(db, ctf_event.id) or {}

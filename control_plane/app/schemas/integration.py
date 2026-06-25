@@ -39,7 +39,9 @@ class CTFdPerCtfConfigResponse(BaseModel):
 
 
 class RCTFSyncRequest(BaseModel):
-    base_url: HttpUrl | None = None
+    # base_url is required: it identifies which CTF (and thus which stored
+    # team token) to use. Only team_token may be omitted on re-sync.
+    base_url: HttpUrl
     team_token: str | None = None
 
 
