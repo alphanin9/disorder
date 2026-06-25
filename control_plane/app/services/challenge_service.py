@@ -182,19 +182,23 @@ def update_challenge(db: Session, challenge: ChallengeManifest, request: Challen
     return refreshed
 
 
-def ensure_ctf_for_sync(db: Session, base_url: str) -> CTFEvent:
+_PLATFORM_LABELS = {"ctfd": "CTFd", "rctf": "rCTF"}
+
+
+def ensure_ctf_for_sync(db: Session, base_url: str, platform: str = "ctfd") -> CTFEvent:
     host = base_url.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
-    slug = _normalize_slug(f"ctfd-{host}")
+    label = _PLATFORM_LABELS.get(platform, platform)
+    slug = _normalize_slug(f"{platform}-{host}")
     existing = db.execute(select(CTFEvent).where(CTFEvent.slug == slug)).scalar_one_or_none()
     if existing is not None:
         return existing
 
     event = CTFEvent(
-        name=f"CTFd {host}",
+        name=f"{label} {host}",
         slug=slug,
-        platform="ctfd",
+        platform=platform,
         default_flag_regex=r"flag\{.*?\}",
-        notes=f"Auto-created from CTFd sync source {base_url}",
+        notes=f"Auto-created from {label} sync source {base_url}",
     )
     db.add(event)
     db.commit()

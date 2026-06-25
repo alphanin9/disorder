@@ -4,10 +4,21 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from control_plane.app.db.session import get_db
-from control_plane.app.schemas.integration import CTFdConfigResponse, CTFdSyncRequest, CTFdSyncResponse
-from control_plane.app.services.sync_service import get_ctfd_config, sync_ctfd_challenges
+from control_plane.app.schemas.integration import (
+    CTFdConfigResponse,
+    CTFdSyncRequest,
+    CTFdSyncResponse,
+    RCTFSyncRequest,
+    RCTFSyncResponse,
+)
+from control_plane.app.services.sync_service import (
+    get_ctfd_config,
+    sync_ctfd_challenges,
+    sync_rctf_challenges,
+)
 
 router = APIRouter(prefix="/integrations/ctfd", tags=["integrations"])
+rctf_router = APIRouter(prefix="/integrations/rctf", tags=["integrations"])
 
 
 @router.post("/sync", response_model=CTFdSyncResponse)
@@ -24,3 +35,11 @@ def get_ctfd(db: Session = Depends(get_db)) -> CTFdConfigResponse:
     if not config:
         return CTFdConfigResponse(base_url="", configured=False)
     return CTFdConfigResponse(base_url=config.get("base_url", ""), configured=True)
+
+
+@rctf_router.post("/sync", response_model=RCTFSyncResponse)
+def sync_rctf(request: RCTFSyncRequest, db: Session = Depends(get_db)) -> RCTFSyncResponse:
+    try:
+        return RCTFSyncResponse.model_validate(sync_rctf_challenges(db, request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

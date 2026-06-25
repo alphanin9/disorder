@@ -218,31 +218,58 @@ def _build_runner_loop_policy_payload(
 
 @app.command("configure")
 def configure(
-    ctfd_url: str = typer.Option(..., "--ctfd-url", help="CTFd base URL"),
-    token: str = typer.Option(..., "--token", help="CTFd API token"),
+    platform: str = typer.Option("ctfd", "--platform", help="CTF platform: ctfd or rctf"),
+    ctfd_url: str | None = typer.Option(None, "--ctfd-url", help="CTFd base URL"),
+    token: str | None = typer.Option(None, "--token", help="CTFd API token"),
+    rctf_url: str | None = typer.Option(None, "--rctf-url", help="rCTF base URL"),
+    team_token: str | None = typer.Option(None, "--team-token", help="rCTF team token"),
     api_url: str = typer.Option(
         "http://localhost:8000", "--api-url", help="Control plane URL"
     ),
 ) -> None:
+    if platform not in {"ctfd", "rctf"}:
+        raise typer.BadParameter("--platform must be 'ctfd' or 'rctf'")
     config = _load_config()
-    config.update({"ctfd_url": ctfd_url, "token": token, "api_url": api_url})
+    config["api_url"] = api_url
+    config["platform"] = platform
+    if platform == "ctfd":
+        if not ctfd_url or not token:
+            raise typer.BadParameter("ctfd configure requires --ctfd-url and --token")
+        config.update({"ctfd_url": ctfd_url, "token": token})
+    else:
+        if not rctf_url or not team_token:
+            raise typer.BadParameter("rctf configure requires --rctf-url and --team-token")
+        config.update({"rctf_url": rctf_url, "team_token": team_token})
     _save_config(config)
-    typer.echo(f"Saved config to {CONFIG_PATH}")
+    typer.echo(f"Saved {platform} config to {CONFIG_PATH}")
 
 
 @app.command("sync")
 def sync(
+    platform: str | None = typer.Option(None, "--platform", help="CTF platform: ctfd or rctf"),
     ctfd_url: str | None = typer.Option(None, "--ctfd-url", help="CTFd base URL"),
     token: str | None = typer.Option(None, "--token", help="CTFd API token"),
+    rctf_url: str | None = typer.Option(None, "--rctf-url", help="rCTF base URL"),
+    team_token: str | None = typer.Option(None, "--team-token", help="rCTF team token"),
     api_url: str | None = typer.Option(None, "--api-url", help="Control plane URL"),
 ) -> None:
     config = _load_config()
+    resolved_platform = platform or config.get("platform") or "ctfd"
+    if resolved_platform not in {"ctfd", "rctf"}:
+        raise typer.BadParameter("--platform must be 'ctfd' or 'rctf'")
     resolved_api = _resolve_api_url(api_url)
-    payload = {
-        "base_url": ctfd_url or config.get("ctfd_url"),
-        "api_token": token or config.get("token"),
-    }
-    data = _api_request("POST", resolved_api, "/integrations/ctfd/sync", payload)
+    if resolved_platform == "ctfd":
+        payload = {
+            "base_url": ctfd_url or config.get("ctfd_url"),
+            "api_token": token or config.get("token"),
+        }
+        data = _api_request("POST", resolved_api, "/integrations/ctfd/sync", payload)
+    else:
+        payload = {
+            "base_url": rctf_url or config.get("rctf_url"),
+            "team_token": team_token or config.get("team_token"),
+        }
+        data = _api_request("POST", resolved_api, "/integrations/rctf/sync", payload)
     typer.echo(json.dumps(data, indent=2))
 
 

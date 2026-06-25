@@ -12,13 +12,19 @@ from control_plane.app.adapters.ctfd import (
     normalize_description,
     parse_remote_endpoints,
 )
+from control_plane.app.adapters.rctf import RCTFAuthError, RCTFClient
 from control_plane.app.db.models import ChallengeManifest, IntegrationConfig
-from control_plane.app.schemas.integration import CTFdSyncRequest
+from control_plane.app.schemas.integration import CTFdSyncRequest, RCTFSyncRequest
 from control_plane.app.services.challenge_service import ensure_ctf_for_sync
 from control_plane.app.services.ctfd_config_service import (
     get_ctfd_config_response as get_ctfd_config_response_for_ctf,
     get_ctfd_decrypted_credentials,
     upsert_ctfd_config as upsert_ctfd_config_for_ctf,
+)
+from control_plane.app.services.rctf_config_service import (
+    get_rctf_config_response,
+    get_rctf_decrypted_credentials,
+    upsert_rctf_config,
 )
 from control_plane.app.store import get_blob_store
 from control_plane.app.store.minio import artifact_object_key, sha256_bytes
@@ -209,5 +215,103 @@ def sync_ctfd_challenges(db: Session, request: CTFdSyncRequest) -> dict:
         raise ValueError(f"CTFd request failed with HTTP {exc.response.status_code}.") from exc
     except httpx.RequestError as exc:
         raise ValueError("Unable to reach CTFd. Check base URL and network connectivity.") from exc
+    finally:
+        client.close()
+
+
+def sync_rctf_challenges(db: Session, request: RCTFSyncRequest) -> dict:
+    base_url = str(request.base_url) if request.base_url else None
+    team_token = (request.team_token or "").strip() or None
+
+    if not base_url:
+        raise ValueError("rCTF integration is not configured. Provide base_url.")
+
+    ctf_event = ensure_ctf_for_sync(db, base_url=base_url, platform="rctf")
+    per_ctf_creds = get_rctf_decrypted_credentials(db, ctf_event.id) or {}
+    if not team_token:
+        team_token = str(per_ctf_creds.get("team_token") or "").strip() or None
+    if not team_token:
+        raise ValueError("rCTF sync requires a team_token.")
+
+    client = RCTFClient(base_url=base_url, team_token=team_token)
+    blob_store = get_blob_store()
+
+    try:
+        summaries = client.list_challenges()
+        synced = 0
+
+        for summary in summaries:
+            details = client.get_challenge(summary.challenge_id)
+            description_raw = str(details.get("description") or "")
+            description_md = normalize_description(description_raw)
+            remote_endpoints = parse_remote_endpoints(description_md)
+
+            artifacts: list[dict] = []
+            file_entries = extract_file_entries(details)
+            for file_entry in file_entries:
+                file_bytes = client.download_file(file_entry["url"])
+                sha_hex = sha256_bytes(file_bytes)
+                object_key = artifact_object_key(
+                    platform="rctf",
+                    challenge_id=summary.challenge_id,
+                    file_name=file_entry["name"],
+                    sha256_hex=sha_hex,
+                    scope=str(ctf_event.id),
+                )
+                if not blob_store.object_exists(object_key):
+                    blob_store.put_bytes(object_key=object_key, data=file_bytes)
+                artifacts.append(
+                    {
+                        "name": file_entry["name"],
+                        "sha256": sha_hex,
+                        "size_bytes": len(file_bytes),
+                        "object_key": object_key,
+                    }
+                )
+
+            local_deploy_hints = {
+                "compose_present": any(a["name"] in {"docker-compose.yml", "compose.yml"} for a in artifacts),
+                "notes": None,
+            }
+
+            query = select(ChallengeManifest).where(
+                ChallengeManifest.ctf_id == ctf_event.id,
+                ChallengeManifest.platform == "rctf",
+                ChallengeManifest.platform_challenge_id == summary.challenge_id,
+            )
+            existing = db.execute(query).scalar_one_or_none()
+            if existing is None:
+                existing = ChallengeManifest(platform="rctf", platform_challenge_id=summary.challenge_id)
+                db.add(existing)
+
+            existing.ctf_id = ctf_event.id
+            existing.name = summary.name
+            existing.category = summary.category
+            existing.points = summary.points
+            existing.description_md = description_md
+            existing.description_raw = description_raw
+            existing.artifacts = artifacts
+            existing.remote_endpoints = remote_endpoints
+            existing.local_deploy_hints = local_deploy_hints
+            existing.synced_at = datetime.now(timezone.utc)
+
+            synced += 1
+
+        db.commit()
+        upsert_rctf_config(db, ctf_id=ctf_event.id, base_url=base_url, team_token=team_token)
+        config_response = get_rctf_config_response(db, ctf_event.id)
+        return {
+            "synced": synced,
+            "platform": "rctf",
+            "ctf_id": str(ctf_event.id),
+            "ctf_slug": ctf_event.slug,
+            "has_team_token": bool(config_response.get("has_team_token")),
+        }
+    except RCTFAuthError as exc:
+        raise ValueError(str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(f"rCTF request failed with HTTP {exc.response.status_code}.") from exc
+    except httpx.RequestError as exc:
+        raise ValueError("Unable to reach rCTF. Check base URL and network connectivity.") from exc
     finally:
         client.close()

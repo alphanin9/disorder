@@ -36,3 +36,24 @@ class CTFdPerCtfConfigResponse(BaseModel):
     last_submit_auth_mode: Literal["session_cookie", "api_token"] | None = None
     last_submit_status: str | None = None
     updated_at: datetime | None = None
+
+
+class RCTFSyncRequest(BaseModel):
+    base_url: HttpUrl | None = None
+    team_token: str | None = None
+
+
+class RCTFSyncResponse(BaseModel):
+    synced: int
+    platform: str
+    ctf_id: str
+    ctf_slug: str
+    has_team_token: bool
+
+
+class RCTFPerCtfConfigResponse(BaseModel):
+    base_url: str
+    configured: bool
+    has_team_token: bool
+    last_submit_status: str | None = None
+    updated_at: datetime | None = None

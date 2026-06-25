@@ -14,7 +14,7 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 - Docker SDK for Python orchestration
 
 ## Repo layout
-- `control_plane/` FastAPI control plane, DB models/migrations, CTFd adapter, orchestrator
+- `control_plane/` FastAPI control plane, DB models/migrations, CTFd + rCTF adapters, orchestrator
 - `cli/` Typer CLI (`python -m cli ...`)
 - `frontend/` React + Vite operator console
 - `images/ctf-agent-sandbox/` sandbox image + `agent_runner.py`
@@ -25,9 +25,13 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
 1. Start infra + control plane:
    - `docker compose up -d --build`
    - Frontend is available at `http://localhost:3000`
-2. Optional CTFd sync:
-   - `python -m cli configure --ctfd-url https://ctfd.example --token <token>`
-   - `python -m cli sync`
+2. Optional platform sync:
+   - CTFd:
+     - `python -m cli configure --ctfd-url https://ctfd.example --token <token>`
+     - `python -m cli sync`
+   - rCTF (otter-sec fork):
+     - `python -m cli configure --platform rctf --rctf-url https://rctf.example --team-token <team-token>`
+     - `python -m cli sync --platform rctf`
 3. List challenges:
    - `python -m cli list`
 4. Start run:

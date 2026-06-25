@@ -11,9 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from control_plane.app.adapters.ctfd import CTFdClient
+from control_plane.app.adapters.rctf import RCTFAuthError, RCTFClient
 from control_plane.app.core.config import get_settings
 from control_plane.app.db.models import ChallengeManifest, FlagSubmissionAttempt
 from control_plane.app.services.ctfd_config_service import mark_ctfd_submit_result, resolve_ctfd_auth_candidates
+from control_plane.app.services.rctf_config_service import mark_rctf_submit_result, resolve_rctf_auth_candidates
 
 
 @dataclass(slots=True)
@@ -127,7 +129,7 @@ def _latest_attempt_for_submission_hash(
 
 def _verification_from_prior_attempt(prior: FlagSubmissionAttempt) -> dict[str, Any]:
     verified = prior.verdict_normalized in {"correct", "already_solved"}
-    details = f"Reused prior CTFd submission attempt verdict: {prior.verdict_normalized}."
+    details = f"Reused prior {prior.platform} submission attempt verdict: {prior.verdict_normalized}."
     if prior.auth_mode:
         details += f" auth={prior.auth_mode}."
     if prior.http_status is not None:
@@ -210,6 +212,176 @@ def _attempt_ctfd_submit(
         client.close()
 
 
+_RCTF_VERDICTS: dict[str, tuple[str, bool]] = {
+    "goodFlag": ("correct", True),
+    "badAlreadySolvedChallenge": ("already_solved", True),
+    "badFlag": ("incorrect", False),
+    "badRateLimit": ("rate_limited", False),
+}
+
+
+def _normalize_rctf_verdict(payload: dict[str, Any]) -> tuple[str, bool, str]:
+    kind = str(payload.get("kind") or "").strip()
+    message = str(payload.get("message") or kind or "unknown")
+    verdict, verified = _RCTF_VERDICTS.get(kind, ("error", False))
+    return verdict, verified, message
+
+
+def _attempt_rctf_submit(
+    *,
+    challenge: ChallengeManifest,
+    flag: str,
+    base_url: str,
+    auth_mode: str,
+    secret: str,
+) -> SubmissionAttemptOutcome:
+    client = RCTFClient(base_url=base_url, team_token=secret)
+    try:
+        payload = client.submit_flag(challenge.platform_challenge_id, flag)
+        verdict_normalized, verified, verdict_text = _normalize_rctf_verdict(payload)
+        return SubmissionAttemptOutcome(
+            normalized_verdict=verdict_normalized,
+            verified=verified,
+            details=f"rCTF submission verdict: {verdict_text}",
+            auth_mode=auth_mode,
+            http_status=200,
+            response_payload=payload if isinstance(payload, dict) else {"raw": payload},
+        )
+    except RCTFAuthError as exc:
+        return SubmissionAttemptOutcome(
+            normalized_verdict="error",
+            verified=False,
+            details=f"rCTF authentication failed: {exc}",
+            auth_mode=auth_mode,
+            http_status=None,
+            response_payload={"kind": "auth_error"},
+            error_message=str(exc),
+        )
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        verdict = "rate_limited" if status_code == 429 else "error"
+        return SubmissionAttemptOutcome(
+            normalized_verdict=verdict,
+            verified=False,
+            details=f"rCTF request failed with HTTP {status_code}.",
+            auth_mode=auth_mode,
+            http_status=status_code,
+            response_payload={
+                "kind": "http_error",
+                "status_code": status_code,
+                "body_preview": exc.response.text[:512],
+            },
+            error_message=str(exc),
+        )
+    except httpx.RequestError as exc:
+        return SubmissionAttemptOutcome(
+            normalized_verdict="error",
+            verified=False,
+            details="Unable to reach rCTF for flag submission.",
+            auth_mode=auth_mode,
+            http_status=None,
+            response_payload={"kind": "request_error"},
+            error_message=str(exc),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        return SubmissionAttemptOutcome(
+            normalized_verdict="error",
+            verified=False,
+            details="Unexpected error during rCTF flag submission.",
+            auth_mode=auth_mode,
+            http_status=None,
+            response_payload={"kind": "unexpected_error"},
+            error_message=str(exc),
+        )
+    finally:
+        client.close()
+
+
+def _run_platform_submit(
+    db: Session,
+    *,
+    run_id: UUID | str,
+    challenge: ChallengeManifest,
+    flag: str,
+    submission_hash: str,
+    candidates: list,
+    attempt_fn: Any,
+    mark_result_fn: Any,
+    max_attempts: int,
+    platform_label: str,
+) -> dict[str, Any] | str:
+    """Shared cap/dedup/record loop for platform flag submission.
+
+    Returns a verification dict on a conclusive attempt, or a ``platform_error``
+    string explaining why platform submission was skipped/failed so the caller
+    can fall back to regex verification.
+    """
+    existing_attempts = _run_submission_attempt_count(db, run_id)
+    if existing_attempts >= max_attempts:
+        return f"{platform_label} auto-submit skipped: per-run attempt cap reached ({max_attempts})."
+
+    if _has_duplicate_submission_hash(db, run_id, submission_hash):
+        prior_attempt = _latest_attempt_for_submission_hash(db, run_id, submission_hash)
+        if prior_attempt is not None:
+            return _verification_from_prior_attempt(prior_attempt)
+        return f"{platform_label} auto-submit skipped: duplicate flag candidate already submitted for this run."
+
+    if not candidates:
+        return f"No per-CTF {platform_label} credentials configured for this challenge."
+
+    last_outcome: SubmissionAttemptOutcome | None = None
+    for index, candidate in enumerate(candidates):
+        outcome = attempt_fn(
+            challenge=challenge,
+            flag=flag,
+            base_url=candidate.base_url,
+            auth_mode=candidate.mode,
+            secret=candidate.secret,
+        )
+        last_outcome = outcome
+
+        _record_flag_submission_attempt(
+            db,
+            run_id=run_id,
+            challenge=challenge,
+            auth_mode=candidate.mode,
+            flag=flag,
+            verdict_normalized=outcome.normalized_verdict,
+            http_status=outcome.http_status,
+            error_message=outcome.error_message,
+            request_payload_json={
+                "challenge_id": challenge.platform_challenge_id,
+                "submission_sha256": submission_hash,
+                "submission_length": len(flag),
+            },
+            response_payload_json=outcome.response_payload,
+        )
+
+        mark_result_fn(
+            db,
+            ctf_id=challenge.ctf_id,
+            auth_mode=candidate.mode,
+            status=outcome.normalized_verdict,
+            commit=False,
+        )
+
+        if outcome.normalized_verdict != "error":
+            return {
+                "method": "platform_submit",
+                "verified": outcome.verified,
+                "details": outcome.details,
+            }
+
+        allow_fallback = bool(outcome.response_payload.get("_allow_fallback"))
+        has_more = index + 1 < len(candidates)
+        if not (allow_fallback and has_more):
+            break
+
+    if last_outcome is not None:
+        return last_outcome.details
+    return f"{platform_label} auto-submit produced no outcome."
+
+
 def _regex_fallback_verification(flag: str, regex: str | None, platform_error: str | None) -> dict[str, Any]:
     if regex:
         try:
@@ -246,83 +418,45 @@ def build_flag_verification(
 
     settings = get_settings()
     platform_error: str | None = None
+
     if challenge.platform == "ctfd":
         if not settings.ctfd_auto_submit_enabled:
             platform_error = "CTFd auto-submit is disabled by configuration."
         else:
-            max_attempts = max(1, int(settings.ctfd_auto_submit_max_attempts_per_run))
-            existing_attempts = _run_submission_attempt_count(db, run_id)
-            if existing_attempts >= max_attempts:
-                platform_error = f"CTFd auto-submit skipped: per-run attempt cap reached ({max_attempts})."
-            else:
-                submission_hash = _sha256_text(normalized_flag)
-                if _has_duplicate_submission_hash(db, run_id, submission_hash):
-                    prior_attempt = _latest_attempt_for_submission_hash(db, run_id, submission_hash)
-                    if prior_attempt is not None:
-                        return _verification_from_prior_attempt(prior_attempt)
-                    platform_error = "CTFd auto-submit skipped: duplicate flag candidate already submitted for this run."
-                else:
-                    candidates = resolve_ctfd_auth_candidates(db, ctf_id=challenge.ctf_id)
-                    if not candidates:
-                        platform_error = "No per-CTF CTFd credentials configured for this challenge."
-                    else:
-                        last_outcome: SubmissionAttemptOutcome | None = None
-                        for index, candidate in enumerate(candidates):
-                            outcome = _attempt_ctfd_submit(
-                                challenge=challenge,
-                                flag=normalized_flag,
-                                base_url=candidate.base_url,
-                                auth_mode=candidate.mode,
-                                secret=candidate.secret,
-                            )
-                            last_outcome = outcome
-
-                            _record_flag_submission_attempt(
-                                db,
-                                run_id=run_id,
-                                challenge=challenge,
-                                auth_mode=candidate.mode,
-                                flag=normalized_flag,
-                                verdict_normalized=outcome.normalized_verdict,
-                                http_status=outcome.http_status,
-                                error_message=outcome.error_message,
-                                request_payload_json={
-                                    "challenge_id": challenge.platform_challenge_id,
-                                    "submission_sha256": submission_hash,
-                                    "submission_length": len(normalized_flag),
-                                },
-                                response_payload_json=outcome.response_payload,
-                            )
-
-                            if outcome.normalized_verdict not in {"error"}:
-                                mark_ctfd_submit_result(
-                                    db,
-                                    ctf_id=challenge.ctf_id,
-                                    auth_mode=candidate.mode,
-                                    status=outcome.normalized_verdict,
-                                    commit=False,
-                                )
-                                return {
-                                    "method": "platform_submit",
-                                    "verified": outcome.verified,
-                                    "details": outcome.details,
-                                }
-
-                            mark_ctfd_submit_result(
-                                db,
-                                ctf_id=challenge.ctf_id,
-                                auth_mode=candidate.mode,
-                                status=outcome.normalized_verdict,
-                                commit=False,
-                            )
-
-                            allow_fallback = bool(outcome.response_payload.get("_allow_fallback"))
-                            has_more = index + 1 < len(candidates)
-                            if not (allow_fallback and has_more):
-                                break
-
-                        if last_outcome is not None:
-                            platform_error = last_outcome.details
+            result = _run_platform_submit(
+                db,
+                run_id=run_id,
+                challenge=challenge,
+                flag=normalized_flag,
+                submission_hash=_sha256_text(normalized_flag),
+                candidates=resolve_ctfd_auth_candidates(db, ctf_id=challenge.ctf_id),
+                attempt_fn=_attempt_ctfd_submit,
+                mark_result_fn=mark_ctfd_submit_result,
+                max_attempts=max(1, int(settings.ctfd_auto_submit_max_attempts_per_run)),
+                platform_label="CTFd",
+            )
+            if isinstance(result, dict):
+                return result
+            platform_error = result
+    elif challenge.platform == "rctf":
+        if not settings.rctf_auto_submit_enabled:
+            platform_error = "rCTF auto-submit is disabled by configuration."
+        else:
+            result = _run_platform_submit(
+                db,
+                run_id=run_id,
+                challenge=challenge,
+                flag=normalized_flag,
+                submission_hash=_sha256_text(normalized_flag),
+                candidates=resolve_rctf_auth_candidates(db, ctf_id=challenge.ctf_id),
+                attempt_fn=_attempt_rctf_submit,
+                mark_result_fn=mark_rctf_submit_result,
+                max_attempts=max(1, int(settings.rctf_auto_submit_max_attempts_per_run)),
+                platform_label="rCTF",
+            )
+            if isinstance(result, dict):
+                return result
+            platform_error = result
 
     return _regex_fallback_verification(normalized_flag, regex, platform_error)
 

@@ -133,6 +133,24 @@ export type CTFdSyncResponse = {
   auth_mode_used: "session_cookie" | "api_token";
   stored_auth_modes: Array<"session_cookie" | "api_token">;
 };
+export type RCTFSyncRequest = {
+  base_url: string;
+  team_token?: string | null;
+};
+export type RCTFSyncResponse = {
+  synced: number;
+  platform: string;
+  ctf_id: string;
+  ctf_slug: string;
+  has_team_token: boolean;
+};
+export type RCTFPerCtfConfigResponse = {
+  base_url: string;
+  configured: boolean;
+  has_team_token: boolean;
+  last_submit_status?: string | null;
+  updated_at?: string | null;
+};
 export type ChallengeCreateRequest = components["schemas"]["ChallengeCreateRequest"];
 export type ChallengeUpdateRequest = components["schemas"]["ChallengeUpdateRequest"];
 export type ChallengeArtifact = components["schemas"]["ChallengeArtifactRead"];

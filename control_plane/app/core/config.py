@@ -103,6 +103,8 @@ class Settings(BaseSettings):
     ctfd_auto_submit_enabled: bool = Field(default=True)
     ctfd_auto_submit_max_attempts_per_run: int = Field(default=8)
     ctfd_auto_submit_retry_count: int = Field(default=0)
+    rctf_auto_submit_enabled: bool = Field(default=True)
+    rctf_auto_submit_max_attempts_per_run: int = Field(default=8)
     discord_webhook_url: str | None = Field(default=None)
     discord_notify_on_flag: bool = Field(default=True)
     discord_notify_include_flag: bool = Field(default=True)

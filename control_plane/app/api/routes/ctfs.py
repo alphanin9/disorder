@@ -7,10 +7,11 @@ from sqlalchemy.orm import Session
 
 from control_plane.app.db.session import get_db
 from control_plane.app.schemas.ctf import CTFCreateRequest, CTFListResponse, CTFRead, CTFUpdateRequest
-from control_plane.app.schemas.integration import CTFdPerCtfConfigResponse
+from control_plane.app.schemas.integration import CTFdPerCtfConfigResponse, RCTFPerCtfConfigResponse
 from control_plane.app.services.challenge_service import create_ctf, get_ctf_or_none, list_ctfs, update_ctf
 from control_plane.app.services.ctfd_config_service import clear_ctfd_api_token, clear_ctfd_session_cookie, get_ctfd_config_response
 from control_plane.app.services.delete_service import delete_ctf
+from control_plane.app.services.rctf_config_service import clear_rctf_team_token, get_rctf_config_response
 
 router = APIRouter(prefix="/ctfs", tags=["ctfs"])
 
@@ -60,6 +61,22 @@ def clear_ctf_ctfd_api_token_route(ctf_id: UUID, db: Session = Depends(get_db)) 
     if row is None:
         raise HTTPException(status_code=404, detail="ctf not found")
     return CTFdPerCtfConfigResponse.model_validate(clear_ctfd_api_token(db, ctf_id=ctf_id))
+
+
+@router.get("/{ctf_id}/integrations/rctf/config", response_model=RCTFPerCtfConfigResponse)
+def get_ctf_rctf_config_route(ctf_id: UUID, db: Session = Depends(get_db)) -> RCTFPerCtfConfigResponse:
+    row = get_ctf_or_none(db, str(ctf_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="ctf not found")
+    return RCTFPerCtfConfigResponse.model_validate(get_rctf_config_response(db, ctf_id))
+
+
+@router.delete("/{ctf_id}/integrations/rctf/team-token", response_model=RCTFPerCtfConfigResponse)
+def clear_ctf_rctf_team_token_route(ctf_id: UUID, db: Session = Depends(get_db)) -> RCTFPerCtfConfigResponse:
+    row = get_ctf_or_none(db, str(ctf_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="ctf not found")
+    return RCTFPerCtfConfigResponse.model_validate(clear_rctf_team_token(db, ctf_id=ctf_id))
 
 
 @router.patch("/{ctf_id}", response_model=CTFRead)
