@@ -7,7 +7,8 @@ This plan extends `ctf-agent-sandbox` for advanced math and reverse engineering 
 ### Objectives
 
 - Add SageMath for algebra/number theory/crypto-heavy CTF tasks.
-- Replace Ghidra integration with IDA via `idalib-mcp` (`uv run idalib-mcp`).
+- Add IDA via `idalib-mcp` (`uv run idalib-mcp`) as an opt-in primary decompiler MCP, alongside — not replacing — the existing Ghidra MCP.
+  - Shipped design is coexistence: IDA is the preferred decompiler when enabled (`SANDBOX_IDA_ENABLED=true` + host IDA mount), while Ghidra MCP stays enabled by default (`SANDBOX_GHIDRA_MCP_ENABLED`, baked into the image) as a dependency-free fallback and independent second opinion for exotic architectures and obfuscation cross-checks. Disable Ghidra per-run with `SANDBOX_GHIDRA_MCP_ENABLED=0` when IDA fully covers the target.
 - Keep current run contract unchanged (`result.json` + `README.md`).
 - Keep capabilities safe by default and explicitly enabled.
 

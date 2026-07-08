@@ -32,6 +32,15 @@ USER ctf
 WORKDIR /workspace
 ENTRYPOINT ["python3", "/usr/local/bin/agent_runner.py"]
 
+# Builder stage: compile the Go recon tools once and ship only the static
+# binaries into `full`, so the ~1GB Go toolchain never lands in the final image.
+FROM golang:1.23-bookworm AS gobuilder
+ENV CGO_ENABLED=0 \
+    GOBIN=/out
+RUN mkdir -p /out && \
+    go install github.com/ffuf/ffuf/v2@v2.1.0 && \
+    go install github.com/OJ/gobuster/v3@v3.6.0
+
 FROM sandbox-base AS full
 
 # Install SageMath and create CTF Python profile based on it
@@ -39,6 +48,10 @@ RUN mamba create -y -n ctf sage python=3.13 && \
     echo "conda activate ctf" >> ~/.bashrc && \
     echo "conda activate ctf" >> /etc/skel/.bashrc
 
+# NOTE: `openjdk-21-jdk-headless` (not the full JDK) is enough for Ghidra's
+# headless analyzer, which is how the sandbox drives Ghidra via MCP.
+# NOTE: Only `dotnet-sdk-10.0` is kept; ilspycmd's tool framework rolls forward
+# onto the newest runtime, so the older SDK was redundant weight.
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -48,7 +61,6 @@ RUN dpkg --add-architecture i386 && \
     build-essential \
     cpio \
     curl \
-    dotnet-sdk-8.0 \
     dotnet-sdk-10.0 \
     fasm \
     file \
@@ -56,7 +68,6 @@ RUN dpkg --add-architecture i386 && \
     gdb \
     gdb-multiarch \
     git \
-    golang \
     jq \
     ltrace \
     libwine \
@@ -65,8 +76,7 @@ RUN dpkg --add-architecture i386 && \
     netcat-openbsd \
     nodejs \
     npm \
-    nvidia-cuda-toolkit \
-    openjdk-21-jdk \
+    openjdk-21-jdk-headless \
     p7zip-full \
     pahole \
     patchelf \
@@ -84,13 +94,24 @@ RUN dpkg --add-architecture i386 && \
     wine32 \
     wine64 \
     xxd \
-    zip
+    zip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Optional CUDA toolkit for GPU-passthrough hosts. It is heavy (~3GB) and only
+# useful when the harness runs with `SANDBOX_GPU_PASSTHROUGH=true` on a host with
+# NVIDIA drivers, so it is opt-in and disabled by default:
+#   docker build --target full --build-arg INCLUDE_CUDA=true -t ctf-agent-sandbox:latest .
+ARG INCLUDE_CUDA=false
+RUN if [ "$INCLUDE_CUDA" = "true" ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends nvidia-cuda-toolkit && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
 
 RUN npm install -g @openai/codex @anthropic-ai/claude-code
 
-ENV GOBIN=/usr/local/bin
-RUN go install github.com/ffuf/ffuf/v2@latest && \
-    go install github.com/OJ/gobuster/v3@latest
+# Go recon tools built in the `gobuilder` stage (keeps the toolchain out of here)
+COPY --from=gobuilder /out/ffuf /out/gobuster /usr/local/bin/
 
 # Download, untar and copy Zig toolchain to /opt/zig, then add to PATH
 RUN curl -fSSL https://ziglang.org/download/index.json | jq -r 'to_entries | map(select(.value["x86_64-linux"]?)) | max_by(.value.date) | .value["x86_64-linux"].tarball' | \
