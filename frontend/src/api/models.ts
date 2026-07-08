@@ -140,6 +140,7 @@ export type RCTFSyncRequest = {
 export type RCTFSyncResponse = {
   synced: number;
   platform: string;
+  api_version?: string | null;
   ctf_id: string;
   ctf_slug: string;
   has_team_token: boolean;
@@ -148,6 +149,7 @@ export type RCTFPerCtfConfigResponse = {
   base_url: string;
   configured: boolean;
   has_team_token: boolean;
+  api_version?: string | null;
   last_submit_status?: string | null;
   updated_at?: string | null;
 };

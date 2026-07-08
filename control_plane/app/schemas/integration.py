@@ -48,6 +48,8 @@ class RCTFSyncRequest(BaseModel):
 class RCTFSyncResponse(BaseModel):
     synced: int
     platform: str
+    # Challenge API version negotiated during the sync ("v1" or "v2").
+    api_version: str | None = None
     ctf_id: str
     ctf_slug: str
     has_team_token: bool
@@ -57,5 +59,6 @@ class RCTFPerCtfConfigResponse(BaseModel):
     base_url: str
     configured: bool
     has_team_token: bool
+    api_version: str | None = None
     last_submit_status: str | None = None
     updated_at: datetime | None = None

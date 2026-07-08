@@ -87,6 +87,7 @@ def get_rctf_config_response(db: Session, ctf_id: UUID | str) -> dict[str, Any]:
         "base_url": base_url,
         "configured": bool(base_url and has_team_token),
         "has_team_token": has_team_token,
+        "api_version": payload.get("api_version"),
         "last_submit_status": payload.get("last_submit_status"),
         "updated_at": row.updated_at if row is not None else None,
     }
@@ -112,6 +113,7 @@ def upsert_rctf_config(
     ctf_id: UUID | str,
     base_url: str | None = None,
     team_token: str | None = None,
+    api_version: str | None = None,
     clear_team_token: bool = False,
 ) -> CTFIntegrationConfig:
     row = _get_or_create_row(db, ctf_id)
@@ -120,6 +122,10 @@ def upsert_rctf_config(
     normalized_base_url = _normalize_base_url(base_url)
     if normalized_base_url is not None:
         payload["base_url"] = normalized_base_url
+
+    if api_version:
+        # Remember which challenge API last served this CTF (e.g. "v2").
+        payload["api_version"] = api_version
 
     if clear_team_token:
         payload.pop("team_token_encrypted", None)

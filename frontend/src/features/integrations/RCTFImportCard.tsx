@@ -91,8 +91,8 @@ export function RCTFImportCard() {
     <Card>
       <h3 className="mb-3 text-lg font-semibold">Import from rCTF</h3>
       <p className="mb-3 text-sm text-ink-muted">
-        Sync challenges from an rCTF instance using your team token. The token is stored (encrypted) per CTF so the backend can
-        auto-submit flags later.
+        Sync challenges from an rCTF instance using your team token. The newer rCTF v2 challenge API is auto-detected (with
+        fallback to v1). The token is stored (encrypted) per CTF so the backend can auto-submit flags later.
       </p>
 
       <form className="space-y-3" onSubmit={onSubmit}>
@@ -137,7 +137,8 @@ export function RCTFImportCard() {
       {syncError ? <p className="mt-3 text-sm text-danger">{syncError}</p> : null}
       {syncMutation.data ? (
         <p className="mt-3 text-sm text-success">
-          Synced {syncMutation.data.synced} challenges from {syncMutation.data.platform}.
+          Synced {syncMutation.data.synced} challenges from {syncMutation.data.platform}
+          {syncMutation.data.api_version ? ` (API ${syncMutation.data.api_version})` : ""}.
         </p>
       ) : null}
 
@@ -148,6 +149,7 @@ export function RCTFImportCard() {
           <p className="mt-1">
             base URL: <code>{savedConfig.base_url || "(none)"}</code>
           </p>
+          {savedConfig.api_version ? <p>challenge API: <code>{savedConfig.api_version}</code></p> : null}
           <p>stored: {savedConfig.has_team_token ? "team token" : "(none)"}</p>
           <div className="mt-2 flex gap-2">
             <Button

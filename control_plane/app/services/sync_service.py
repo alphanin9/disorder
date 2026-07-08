@@ -12,7 +12,7 @@ from control_plane.app.adapters.ctfd import (
     normalize_description,
     parse_remote_endpoints,
 )
-from control_plane.app.adapters.rctf import RCTFAuthError, RCTFClient
+from control_plane.app.adapters.rctf import RCTFAuthError, RCTFClient, challenge_metadata
 from control_plane.app.db.models import ChallengeManifest, IntegrationConfig
 from control_plane.app.schemas.integration import CTFdSyncRequest, RCTFSyncRequest
 from control_plane.app.services.challenge_service import ensure_ctf_for_sync
@@ -232,11 +232,15 @@ def sync_rctf_challenges(db: Session, request: RCTFSyncRequest) -> dict:
     if not team_token:
         raise ValueError("rCTF sync requires a team_token.")
 
-    client = RCTFClient(base_url=base_url, team_token=team_token)
+    client = RCTFClient(base_url=base_url, team_token=team_token, api_version="auto")
     blob_store = get_blob_store()
 
     try:
         summaries = client.list_challenges()
+        # Which challenge API actually served the list ("v2" on the otter-sec
+        # rCTF v2 fork, "v1" on older instances). Drives the extra metadata we
+        # persist and is echoed back to the caller.
+        api_version = client.negotiated_version or "v1"
         synced = 0
 
         for summary in summaries:
@@ -268,10 +272,15 @@ def sync_rctf_challenges(db: Session, request: RCTFSyncRequest) -> dict:
                     }
                 )
 
-            local_deploy_hints = {
+            local_deploy_hints: dict = {
                 "compose_present": any(a["name"] in {"docker-compose.yml", "compose.yml"} for a in artifacts),
                 "notes": None,
             }
+            # Surface the richer rCTF v2 challenge metadata (tags, solve count,
+            # scoring kind, and on-demand instancer details) when the v2 API
+            # served the listing.
+            if api_version == "v2":
+                local_deploy_hints["rctf"] = challenge_metadata(summary)
 
             query = select(ChallengeManifest).where(
                 ChallengeManifest.ctf_id == ctf_event.id,
@@ -297,11 +306,18 @@ def sync_rctf_challenges(db: Session, request: RCTFSyncRequest) -> dict:
             synced += 1
 
         db.commit()
-        upsert_rctf_config(db, ctf_id=ctf_event.id, base_url=base_url, team_token=team_token)
+        upsert_rctf_config(
+            db,
+            ctf_id=ctf_event.id,
+            base_url=base_url,
+            team_token=team_token,
+            api_version=api_version,
+        )
         config_response = get_rctf_config_response(db, ctf_event.id)
         return {
             "synced": synced,
             "platform": "rctf",
+            "api_version": api_version,
             "ctf_id": str(ctf_event.id),
             "ctf_slug": ctf_event.slug,
             "has_team_token": bool(config_response.get("has_team_token")),
