@@ -90,7 +90,9 @@ Docker-first Python monorepo for running Jeopardy-style CTF agent runs in isolat
   - `DISCORD_NOTIFY_INCLUDE_FLAG=true|false`
 - Optional GPU passthrough for GPU-beneficial compute:
   - `SANDBOX_GPU_PASSTHROUGH=true` requests all Docker-daemon-visible GPUs for each sandbox run.
-  - The full sandbox image intentionally installs `nvidia-cuda-toolkit` unconditionally so GPU-capable hosts do not need a separate image variant.
+  - The CUDA toolkit is **not** installed by default (it adds ~3GB and is only useful on GPU-capable hosts). Build a GPU-enabled variant explicitly:
+    - `docker build --target full --build-arg INCLUDE_CUDA=true -t ctf-agent-sandbox:latest images/ctf-agent-sandbox`
+    - The default auto-build path (image built on demand by the control plane) produces the slimmer, CUDA-less image.
   - Host prerequisites still apply:
     - Linux Docker Engine: install NVIDIA drivers plus NVIDIA Container Toolkit for the daemon.
     - Docker Desktop / WSL2: ensure host GPU drivers and Docker Desktop GPU support are working for Linux containers.
